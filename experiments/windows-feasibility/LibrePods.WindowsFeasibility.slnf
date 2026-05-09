@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "LibrePods.WindowsFeasibility.sln",
+    "projects": [
+      "battery-tray-mvp\\BatteryTrayMvp.csproj",
+      "ble-advertisement-probe\\BleAdvertisementProbe.csproj",
+      "bluetooth-service-probe\\BluetoothServiceProbe.csproj"
+    ]
+  }
+}

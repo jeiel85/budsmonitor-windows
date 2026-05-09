@@ -4,6 +4,75 @@ project(linux VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(WIN32)
+    find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+
+    qt_standard_project_setup()
+
+    qt_add_executable(librepods-ble-parser-smoke
+        tests/ble_parser_smoke.cpp
+        enums.h
+        ble/bleadvertisementparser.cpp
+        ble/bleadvertisementparser.h
+        ble/iblescanner.h
+        ble/bleinfo.h
+    )
+
+    target_link_libraries(librepods-ble-parser-smoke
+        PRIVATE Qt6::Core
+    )
+
+    qt_add_executable(librepods-windows-ble-scanner-smoke
+        tests/windows_ble_scanner_smoke.cpp
+        enums.h
+        ble/bleadvertisementparser.cpp
+        ble/bleadvertisementparser.h
+        ble/iblescanner.h
+        ble/bleinfo.h
+        platform/windows/windowsblescanner.cpp
+        platform/windows/windowsblescanner.h
+    )
+
+    target_compile_features(librepods-windows-ble-scanner-smoke PRIVATE cxx_std_20)
+
+    target_include_directories(librepods-windows-ble-scanner-smoke PRIVATE
+        "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
+    )
+
+    target_link_libraries(librepods-windows-ble-scanner-smoke
+        PRIVATE Qt6::Core windowsapp
+    )
+
+    qt_add_executable(librepods-windows-tray-mvp
+        tests/windows_tray_mvp.cpp
+        enums.h
+        ble/bleadvertisementparser.cpp
+        ble/bleadvertisementparser.h
+        ble/iblescanner.h
+        ble/bleinfo.h
+        platform/windows/windowsblescanner.cpp
+        platform/windows/windowsblescanner.h
+    )
+
+    target_compile_features(librepods-windows-tray-mvp PRIVATE cxx_std_20)
+
+    target_include_directories(librepods-windows-tray-mvp PRIVATE
+        "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
+    )
+
+    qt_add_resources(librepods-windows-tray-mvp "windows_tray_resources"
+        PREFIX "/icons"
+        FILES
+            assets/airpods.png
+    )
+
+    target_link_libraries(librepods-windows-tray-mvp
+        PRIVATE Qt6::Core Qt6::Widgets windowsapp
+    )
+
+    return()
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Quick Widgets Bluetooth DBus LinguistTools)
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -35,6 +104,10 @@ qt_add_executable(librepods
     deviceinfo.hpp
     ble/bleutils.cpp
     ble/bleutils.h
+    ble/bleadvertisementparser.cpp
+    ble/bleadvertisementparser.h
+    ble/iblescanner.h
+    ble/bleinfo.h
     ble/blemanager.cpp
     ble/blemanager.h
     thirdparty/QR-Code-generator/qrcodegen.cpp
