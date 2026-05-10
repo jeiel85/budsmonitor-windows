@@ -126,11 +126,22 @@ $env:Path = "C:\Qt\6.8.3\msvc2022_64\bin;$env:Path"
   - CMake에 `Qt6::Qml`, `Qt6::Quick`, `Qt6::QuickControls2` 링크 추가, 별도 qrc로 QML 등록.
   - 빌드 성공 + 5초 launch smoke 통과 (QML 로드 stderr empty).
 
+- 2026-05-10: native AACP SDP/socket probe 추가 (`linux/tests/windows_aacp_probe.cpp`, target `librepods-windows-aacp-probe`).
+  결과 요약:
+  - SDP: ✅ `WSALookupServiceBeginW(NS_BTH)` 성공 — "AAP Server", L2CAP PSM **0x1001** 발견
+  - L2CAP socket(SOCK_STREAM): socket() 성공, bind()/connect() → **WSAENETDOWN(10050)** (local bind도 동일)
+  - L2CAP socket(SOCK_SEQPACKET): socket() → **WSAESOCKTNOSUPPORT(10044)**
+  - 결론: **Windows userspace에서 raw L2CAP 접근은 OS 레벨에서 차단됨** (원격 기기 무관)
+  - 상세 결과: `experiments/windows-feasibility/RESULTS.md`
+
 ## 다음 세션에서 이어갈 작업
 
 1. tray MVP를 실제로 장시간 실행하며 tooltip/context menu/popover 토글/배터리 표시를 육안 확인한다.
-2. 별도 branch/target으로 native AACP SDP/socket probe를 시작한다.
-3. AACP socket이 들어오면 `WindowsAirPodsState`에 noise control / ear detection 속성을 확장하고, 그 단계에서 옵션 C(Linux와 QML state model 통합) 진입 여부를 결정한다.
+2. AACP 제어 채널 대안 탐색 — 우선 순위 순:
+   a. `IOCTL_BTH_*` via `CreateFile` on Bluetooth radio handle (HCI IOCTL probe) — userspace에서 가장 가능성 있는 비공개 경로
+   b. HFP/A2DP 세션에 등록된 Bluetooth profile로 piggyback 가능성 조사
+   c. WDF kernel filter driver (복잡하지만 완전한 접근)
+3. AACP 제어 채널 확보 후 `WindowsAirPodsState`에 noise control / ear detection 속성 추가, 옵션 C 진입 결정.
 
 ## 주의사항
 

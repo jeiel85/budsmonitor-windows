@@ -114,3 +114,62 @@ Next recommended work:
 1. Run the Windows Qt tray MVP interactively and verify tooltip/context-menu updates while opening/closing the AirPods case.
 2. Move the tray MVP entrypoint itself from `tests` toward a production Windows app entrypoint.
 3. Start a separate native AACP probe for SDP enumeration and possible L2CAP socket access.
+
+## Native AACP SDP/socket probe (2026-05-10)
+
+Command:
+
+```powershell
+.\build\windows-qt\librepods-windows-aacp-probe.exe
+```
+
+Source: `linux/tests/windows_aacp_probe.cpp`  
+CMake target: `librepods-windows-aacp-probe` (no Qt, links Bthprops + ws2_32)
+
+### SDP query result
+
+```
+SDP record found!
+Service name:  AAP Server
+Remote BTH addr: C40B31C973D8  port/PSM: 4097  proto: 256
+```
+
+- `WSALookupServiceBeginW` with `NS_BTH` and AACP UUID finds the service on the paired AirPods.
+- Service name is **"AAP Server"**, PSM is **0x1001 (4097)**, protocol is L2CAP (BTHPROTO_L2CAP = 256).
+- This confirms the AACP control service is present and discoverable on Windows via native SDP.
+
+### L2CAP socket result
+
+| Attempt | Result | Error |
+|---------|--------|-------|
+| `socket(AF_BTH, SOCK_STREAM, BTHPROTO_L2CAP)` | socket() OK | — |
+| `connect(…, PSM=0)` | **FAILED** | 10050 WSAENETDOWN |
+| `connect(…, PSM=0x1001)` | **FAILED** | 10050 WSAENETDOWN |
+| `socket(AF_BTH, SOCK_SEQPACKET, BTHPROTO_L2CAP)` | **FAILED** | 10044 WSAESOCKTNOSUPPORT |
+| Local `bind(…, BT_PORT_ANY)` with SOCK_STREAM L2CAP | **FAILED** | 10050 WSAENETDOWN |
+
+The local bind failure is the decisive result: even without a remote device involved, Windows returns
+`WSAENETDOWN` on L2CAP bind. This is not a remote-device-not-connected issue — it is Windows
+intentionally blocking userspace raw L2CAP access on the Classic Bluetooth adapter.
+
+### Conclusion
+
+| Layer | Result |
+|-------|--------|
+| BLE advertisement (proximity) | ✅ Works via `BluetoothLEAdvertisementWatcher` |
+| SDP discovery (AACP UUID) | ✅ Works via `WSALookupServiceBeginW/NS_BTH` |
+| L2CAP socket (userspace) | ❌ Blocked by Windows (WSAENETDOWN on local bind) |
+| RFCOMM socket (userspace) | ❌ Wrong protocol; times out |
+
+Windows does not expose raw Classic Bluetooth L2CAP to userspace applications.
+
+### Next steps for control channel
+
+Options (in order of invasiveness):
+
+1. **Kernel driver (WDF/BthPort filter)** — full access but complex; requires code signing.
+2. **Attach to the existing audio HFP/A2DP session** — AirPods maintain a BR/EDR connection when audio is active; investigate whether a registered Bluetooth profile can piggyback.
+3. **Investigate `IOCTL_BTH_*` via `CreateFile` on the radio handle** — undocumented but some community projects use HCI IOCTLs directly.
+4. **Adopt a helper process strategy** — run a small Linux VM or WSL2 BlueZ bridge via USB Bluetooth dongle passthrough (Hyper-V USB passthrough).
+
+The most pragmatic near-term path without kernel development: **option 3 (HCI IOCTL investigation)** in a new probe.

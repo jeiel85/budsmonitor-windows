@@ -79,6 +79,19 @@ if(WIN32)
         PRIVATE Qt6::Core Qt6::Widgets Qt6::Qml Qt6::Quick Qt6::QuickControls2 windowsapp
     )
 
+    # Native AACP SDP/socket probe — no Qt, pure Win32 Bluetooth + Winsock
+    add_executable(librepods-windows-aacp-probe
+        tests/windows_aacp_probe.cpp
+    )
+
+    target_compile_features(librepods-windows-aacp-probe PRIVATE cxx_std_17)
+
+    # Bthprops: BluetoothFindFirstDevice/BluetoothFindNextDevice
+    # ws2_32:   WSALookupService*, socket/connect/select
+    target_link_libraries(librepods-windows-aacp-probe
+        PRIVATE Bthprops ws2_32
+    )
+
     return()
 endif()
 
