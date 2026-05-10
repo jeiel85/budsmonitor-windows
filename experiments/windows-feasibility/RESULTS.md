@@ -173,3 +173,80 @@ Options (in order of invasiveness):
 4. **Adopt a helper process strategy** — run a small Linux VM or WSL2 BlueZ bridge via USB Bluetooth dongle passthrough (Hyper-V USB passthrough).
 
 The most pragmatic near-term path without kernel development: **option 3 (HCI IOCTL investigation)** in a new probe.
+
+## HCI IOCTL probe (2026-05-10)
+
+Command:
+
+```powershell
+.\build\windows-qt\librepods-windows-hci-ioctl-probe.exe
+```
+
+Source: `linux/tests/windows_hci_ioctl_probe.cpp`  
+CMake target: `librepods-windows-hci-ioctl-probe` (no Qt, links Bthprops)  
+Header: `shared/bthioctl.h` (in Windows 10.0.26100.0 SDK)
+
+### Radio-level IOCTL results
+
+| IOCTL | Result | Notes |
+|-------|--------|-------|
+| `IOCTL_BTH_GET_LOCAL_INFO` | ✅ OK | Intel adapter (mfg=0x0002), HCI 0x0B (BT 5.2), LMP 0x0B |
+| `IOCTL_BTH_GET_HOST_SUPPORTED_FEATURES` | ✅ OK | Enhanced Retransmission, Streaming, LE, SCO HCI bypass |
+| `IOCTL_BTH_GET_DEVICE_INFO` | ✅ OK | 6 cached devices; AirPods found (see flags below) |
+| `IOCTL_BTH_HCI_VENDOR_COMMAND` | ❌ 1314 | `ERROR_PRIVILEGE_NOT_HELD` — re-run as Administrator |
+
+### AirPods device cache entry flags
+
+`flags=0x0400539F` decodes to:  
+`ADDRESS|COD|NAME|PAIRED|PERSONAL|VISIBLE|SSP_SUPPORTED|SSP_PAIRED|RSSI|LE_CONNECTED`
+
+Key observation: **`LE_CONNECTED` is set but `CONNECTED` (=0x00000020, Classic BT) is NOT set**.  
+The AirPods are connected via BLE but have no active BR/EDR (Classic Bluetooth) link.  
+This is why `IOCTL_BTH_GET_RADIO_INFO` returns `ERROR_DEVICE_NOT_CONNECTED` (1167).  
+BR/EDR activates when audio is playing (A2DP/HFP profile). Retry with active audio to test.
+
+### SDP via IOCTL results
+
+| IOCTL | Result | Notes |
+|-------|--------|-------|
+| `IOCTL_BTH_SDP_CONNECT` | ✅ OK | SDP handle obtained (via cached SDP data) |
+| `IOCTL_BTH_SDP_SERVICE_SEARCH` | ✅ OK | 1 record handle returned: 0x4F498A30 |
+| `IOCTL_BTH_SDP_ATTRIBUTE_SEARCH` | ✅ OK | 149 bytes — full SDP record |
+| `IOCTL_BTH_SDP_SERVICE_ATTRIBUTE_SEARCH` | ✅ OK | 151 bytes — confirmed same |
+
+### SDP record decoded
+
+Raw bytes:
+```
+35 93 09 00 00 0A 4F 49 8A 30  09 00 01 35 11 1C
+74 EC 21 72 0B AD 4D 01 8F 77  99 7B 2B E0 72 2A
+09 00 02 0A 00 00 00 00  09 00 04 35 08 35 06
+19 01 00 09 10 01  09 00 05 35 03 19 10 02 …
+```
+
+Decoded:
+| Attribute | Value |
+|-----------|-------|
+| 0x0000 ServiceRecordHandle | `0x4F498A30` |
+| 0x0001 ServiceClassIDList | `[{74ec2172-0bad-4d01-8f77-997b2be0722a}]` (AACP UUID) |
+| 0x0002 ServiceRecordState | `0x00000000` |
+| **0x0004 ProtocolDescriptorList** | **`[L2CAP, PSM=0x1001]`** ← confirmed again |
+| 0x0005 BrowseGroupList | `[PublicBrowseRoot]` |
+
+### Conclusion
+
+Public `IOCTL_BTH_*` from userspace allow:
+- Full radio info and host feature query ✅
+- Cached device list with connection flags ✅
+- Full SDP record retrieval (service search + attribute search) ✅
+
+Blocked from userspace:
+- `IOCTL_BTH_HCI_VENDOR_COMMAND` — needs admin elevation (ERROR_PRIVILEGE_NOT_HELD)
+- L2CAP socket connect/bind — blocked by Winsock BT stack (WSAENETDOWN)
+- `IOCTL_INTERNAL_BTH_SUBMIT_BRB` — kernel-internal only (METHOD_NEITHER)
+
+### Next steps
+
+1. **Run probe as Administrator** — test if `IOCTL_BTH_HCI_VENDOR_COMMAND` opens. If yes, raw HCI commands are possible from admin-elevated userspace.
+2. **Trigger BR/EDR connection (play audio) then re-run** — `IOCTL_BTH_GET_RADIO_INFO` and L2CAP socket may behave differently when a Classic BT ACL link is active.
+3. **Kernel driver (WDF BthPort filter)** — required for `IOCTL_INTERNAL_BTH_SUBMIT_BRB` / arbitrary L2CAP. No code signing needed for development with test-signing mode.

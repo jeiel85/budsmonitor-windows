@@ -134,13 +134,22 @@ $env:Path = "C:\Qt\6.8.3\msvc2022_64\bin;$env:Path"
   - 결론: **Windows userspace에서 raw L2CAP 접근은 OS 레벨에서 차단됨** (원격 기기 무관)
   - 상세 결과: `experiments/windows-feasibility/RESULTS.md`
 
+- 2026-05-10: HCI IOCTL probe 추가 (`linux/tests/windows_hci_ioctl_probe.cpp`, target `librepods-windows-hci-ioctl-probe`).
+  결과 요약:
+  - `IOCTL_BTH_GET_LOCAL_INFO` ✅ — Intel 어댑터, HCI 0x0B (BT 5.2)
+  - `IOCTL_BTH_GET_HOST_SUPPORTED_FEATURES` ✅ — Enhanced Retransmission, Streaming Mode, LE, SCO HCI bypass
+  - `IOCTL_BTH_GET_DEVICE_INFO` ✅ — 캐시된 6개 장치. AirPods: `LE_CONNECTED` 있음, `CONNECTED`(BR/EDR) 없음 → 오디오 없이는 BR/EDR 링크 없음
+  - `IOCTL_BTH_SDP_CONNECT` + `SERVICE_SEARCH` + `ATTRIBUTE_SEARCH` ✅ — **전체 SDP 레코드 획득**. 디코딩: ServiceClass=AACP UUID, ProtocolDescriptorList=[L2CAP, PSM=0x1001] 재확인
+  - `IOCTL_BTH_HCI_VENDOR_COMMAND` ❌ 1314 (ERROR_PRIVILEGE_NOT_HELD) — **관리자 권한으로 실행 시 접근 가능 가능성**
+  - 상세: `experiments/windows-feasibility/RESULTS.md`
+
 ## 다음 세션에서 이어갈 작업
 
 1. tray MVP를 실제로 장시간 실행하며 tooltip/context menu/popover 토글/배터리 표시를 육안 확인한다.
-2. AACP 제어 채널 대안 탐색 — 우선 순위 순:
-   a. `IOCTL_BTH_*` via `CreateFile` on Bluetooth radio handle (HCI IOCTL probe) — userspace에서 가장 가능성 있는 비공개 경로
-   b. HFP/A2DP 세션에 등록된 Bluetooth profile로 piggyback 가능성 조사
-   c. WDF kernel filter driver (복잡하지만 완전한 접근)
+2. AACP 제어 채널 탐색 — 우선 순위 순:
+   a. **관리자 권한으로 HCI probe 실행** → `IOCTL_BTH_HCI_VENDOR_COMMAND` 접근 여부 확인. 성공하면 raw HCI 명령 전송 가능
+   b. **오디오 재생 중 AACP probe 실행** → BR/EDR ACL 링크 활성 상태에서 L2CAP 소켓/IOCTL 동작 재확인
+   c. WDF kernel filter driver (개발용 test-signing 모드로 코드 서명 없이 가능)
 3. AACP 제어 채널 확보 후 `WindowsAirPodsState`에 noise control / ear detection 속성 추가, 옵션 C 진입 결정.
 
 ## 주의사항

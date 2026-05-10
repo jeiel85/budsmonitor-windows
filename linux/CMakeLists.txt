@@ -92,6 +92,23 @@ if(WIN32)
         PRIVATE Bthprops ws2_32
     )
 
+    # HCI IOCTL probe — DeviceIoControl on Bluetooth radio handle, no Qt
+    add_executable(librepods-windows-hci-ioctl-probe
+        tests/windows_hci_ioctl_probe.cpp
+    )
+
+    target_compile_features(librepods-windows-hci-ioctl-probe PRIVATE cxx_std_17)
+
+    target_include_directories(librepods-windows-hci-ioctl-probe PRIVATE
+        "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared"
+    )
+
+    # Bthprops: BluetoothFindFirstRadio, BluetoothFindFirstDevice
+    # kernel32: DeviceIoControl (already linked by default, but explicit)
+    target_link_libraries(librepods-windows-hci-ioctl-probe
+        PRIVATE Bthprops
+    )
+
     return()
 endif()
 
