@@ -117,13 +117,20 @@ $env:Path = "C:\Qt\6.8.3\msvc2022_64\bin;$env:Path"
   - CMake target: `librepods-windows-tray-mvp`
 - tray MVP는 `WindowsBleScanner`를 `IBleScanner` 포인터로 사용하며, tray tooltip/context menu에 최신 BLE battery summary를 표시한다.
 - tray MVP 빌드 성공 및 5초 launch smoke 확인 완료
+- 2026-05-10: tray MVP entrypoint를 `linux/tests/windows_tray_mvp.cpp`에서 `linux/platform/windows/windowstraymain.cpp`로 이동, CMake target도 새 경로로 업데이트하고 전체 Windows smoke target 재빌드 + 5초 launch smoke 재확인 완료
+- 2026-05-10: tray MVP에 minimal QML shell 연결 (옵션 B). 신규:
+  - `linux/platform/windows/windowsairpodsstate.h` — `WindowsAirPodsState` QObject. 속성 이름은 Linux `Battery`/`DeviceInfo`와 같은 모양 (`leftPodLevel`, `leftPodCharging`, `leftPodAvailable`, `rightPodLevel`, …, `caseLevel`, `deviceName`, `connected`). 30초 동안 BLE packet이 안 오면 `connected=false`로 떨어지는 stale timer 포함.
+  - `linux/platform/windows/qml/Tray.qml` — frameless `Qt.Tool` popover Window. tray icon 클릭으로 토글, tray geometry 기반 위치 계산.
+  - `linux/platform/windows/qml/BatteryIndicator.qml` — Linux `BatteryIndicator.qml` 복사 (의존 없음). 추후 옵션 C 단계에서 통합.
+  - `windowstraymain.cpp` — `QQmlApplicationEngine`으로 popover 로드, scanner.deviceFound → state.updateFromBleInfo, tray Trigger 클릭으로 popover show/hide.
+  - CMake에 `Qt6::Qml`, `Qt6::Quick`, `Qt6::QuickControls2` 링크 추가, 별도 qrc로 QML 등록.
+  - 빌드 성공 + 5초 launch smoke 통과 (QML 로드 stderr empty).
 
 ## 다음 세션에서 이어갈 작업
 
-1. tray MVP를 실제로 장시간 실행하며 tooltip/context menu 상태 업데이트를 육안 확인한다.
-2. Windows tray MVP entrypoint를 `linux/tests/windows_tray_mvp.cpp`에서 `linux/platform/windows` 쪽 app entrypoint로 이동한다.
-3. Windows tray MVP를 최소 QML shell 또는 기존 QML 상태 모델과 연결하는 방향을 정한다.
-4. 별도 branch/target으로 native AACP SDP/socket probe를 시작한다.
+1. tray MVP를 실제로 장시간 실행하며 tooltip/context menu/popover 토글/배터리 표시를 육안 확인한다.
+2. 별도 branch/target으로 native AACP SDP/socket probe를 시작한다.
+3. AACP socket이 들어오면 `WindowsAirPodsState`에 noise control / ear detection 속성을 확장하고, 그 단계에서 옵션 C(Linux와 QML state model 통합) 진입 여부를 결정한다.
 
 ## 주의사항
 

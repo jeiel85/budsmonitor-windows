@@ -5,7 +5,7 @@ project(linux VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(WIN32)
-    find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
+    find_package(Qt6 REQUIRED COMPONENTS Core Widgets Qml Quick QuickControls2)
 
     qt_standard_project_setup()
 
@@ -44,12 +44,13 @@ if(WIN32)
     )
 
     qt_add_executable(librepods-windows-tray-mvp
-        tests/windows_tray_mvp.cpp
+        platform/windows/windowstraymain.cpp
         enums.h
         ble/bleadvertisementparser.cpp
         ble/bleadvertisementparser.h
         ble/iblescanner.h
         ble/bleinfo.h
+        platform/windows/windowsairpodsstate.h
         platform/windows/windowsblescanner.cpp
         platform/windows/windowsblescanner.h
     )
@@ -60,14 +61,22 @@ if(WIN32)
         "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
     )
 
-    qt_add_resources(librepods-windows-tray-mvp "windows_tray_resources"
+    qt_add_resources(librepods-windows-tray-mvp "windows_tray_icons"
         PREFIX "/icons"
         FILES
             assets/airpods.png
     )
 
+    qt_add_resources(librepods-windows-tray-mvp "windows_tray_qml"
+        PREFIX "/qml"
+        BASE platform/windows/qml
+        FILES
+            platform/windows/qml/Tray.qml
+            platform/windows/qml/BatteryIndicator.qml
+    )
+
     target_link_libraries(librepods-windows-tray-mvp
-        PRIVATE Qt6::Core Qt6::Widgets windowsapp
+        PRIVATE Qt6::Core Qt6::Widgets Qt6::Qml Qt6::Quick Qt6::QuickControls2 windowsapp
     )
 
     return()
