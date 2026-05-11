@@ -250,3 +250,60 @@ Blocked from userspace:
 1. **Run probe as Administrator** — test if `IOCTL_BTH_HCI_VENDOR_COMMAND` opens. If yes, raw HCI commands are possible from admin-elevated userspace.
 2. **Trigger BR/EDR connection (play audio) then re-run** — `IOCTL_BTH_GET_RADIO_INFO` and L2CAP socket may behave differently when a Classic BT ACL link is active.
 3. **Kernel driver (WDF BthPort filter)** — required for `IOCTL_INTERNAL_BTH_SUBMIT_BRB` / arbitrary L2CAP. No code signing needed for development with test-signing mode.
+
+## Admin HCI probe + BR/EDR force-link probe (2026-05-11)
+
+Both follow-ups from the previous step were tested. **Both negative.**
+
+### Admin HCI probe
+
+Command:
+
+```powershell
+# Launched via Start-Process -Verb RunAs (UAC accepted, file output captured)
+.\build\windows-qt\librepods-windows-hci-ioctl-probe.exe
+```
+
+Result: **`IOCTL_BTH_HCI_VENDOR_COMMAND` still returns 1314 (`ERROR_PRIVILEGE_NOT_HELD`) even when running as Administrator.** This IOCTL needs more than admin elevation — likely SYSTEM-level or an explicit `AdjustTokenPrivileges` of a privilege that admin doesn't hold by default. Not viable for normal user code.
+
+All other IOCTLs (`GET_LOCAL_INFO`, `GET_HOST_SUPPORTED_FEATURES`, `GET_DEVICE_INFO`, `SDP_*`) behaved identically to the unelevated run.
+
+### BR/EDR + L2CAP probe (force-link via BluetoothSetServiceState)
+
+Source: `linux/tests/windows_bredr_l2cap_probe.cpp`
+CMake target: `librepods-windows-bredr-l2cap-probe`
+
+Approach: rather than asking the user to set AirPods as default audio output, the probe attempts to force the BR/EDR ACL link via `BluetoothSetServiceState(BLUETOOTH_SERVICE_ENABLE)` on three audio profile UUIDs (A2DP Sink 0x110B, Hands-Free 0x111E, Headset 0x1108), then polls BDIF every 2 seconds for 60 seconds.
+
+| Attempt | Result |
+|---------|--------|
+| `BluetoothSetServiceState(A2DP Sink)`   | **87 (ERROR_INVALID_PARAMETER)** |
+| `BluetoothSetServiceState(Hands-Free)`  | **87 (ERROR_INVALID_PARAMETER)** |
+| `BluetoothSetServiceState(Headset)`     | 1060 (service not advertised) |
+| BDIF after 60 s polling                 | unchanged: `BR/EDR=0  LE=1` |
+| `IOCTL_BTH_GET_RADIO_INFO` (re-check)   | 1167 (DEVICE_NOT_CONNECTED) |
+| `WSALookupServiceBeginW` (LUP_FLUSHCACHE) | WSASERVICE_NOT_FOUND (cache miss → live SDP needs BR/EDR) |
+| `socket(SOCK_STREAM, L2CAP)` + `connect(PSM=0x1001)` | **10050 WSAENETDOWN** |
+| `socket(SOCK_SEQPACKET, L2CAP)`         | 10044 WSAESOCKTNOSUPPORT |
+| `socket(SOCK_STREAM, L2CAP)` + `connect(PSM=0)` | **10050 WSAENETDOWN** |
+
+The Sound panel route was attempted manually first — AirPods entry was greyed out and "Set as default device" was disabled because no audio endpoint was registered (no active BR/EDR profile session). `BluetoothSetServiceState` is the API path for activating that, and it failed.
+
+### Final conclusion
+
+| Path | Outcome |
+|------|---------|
+| WinRT high-level RFCOMM/GATT | ❌ AACP UUID not exposed |
+| WSALookupServiceBeginW SDP (cached) | ✅ Returns PSM=0x1001 |
+| WSALookupServiceBeginW SDP (LUP_FLUSHCACHE, live) | ❌ Needs BR/EDR ACL |
+| Userspace L2CAP socket connect | ❌ **WSAENETDOWN in every configuration** |
+| Userspace L2CAP local bind          | ❌ WSAENETDOWN (no remote needed → Winsock-level block) |
+| BluetoothSetServiceState(audio)     | ❌ Cannot force BR/EDR from userspace API |
+| Admin `IOCTL_BTH_HCI_VENDOR_COMMAND` | ❌ Even admin lacks the privilege |
+| Public `IOCTL_BTH_*` (DEVICE_INFO, SDP_*) | ✅ Read-only access works |
+
+**Windows userspace AACP control is a closed door.** All standard paths are blocked by deliberate OS policy (Winsock L2CAP block + privilege restrictions on HCI). Remaining options require leaving normal userspace:
+
+1. **WSL2 + USB Bluetooth dongle passthrough** (Hyper-V `usbipd-win`). BlueZ in WSL2 sees the dongle as a real adapter and the existing Linux LibrePods code runs as-is. Pragmatic; needs an extra USB dongle (built-in laptop adapters cannot be passed through). Best near-term option.
+2. **WDF Bluetooth profile/filter driver.** Native Windows solution, no extra hardware. High effort: WDF C++ project, code signing (test-mode for development, EV cert for production), driver lifetime management. Worth pursuing if the project commits to a long-term Windows port.
+3. **Ship Windows version as BLE-only.** Tray + battery indicator + ear detection (BLE proximity packet has all of this) work today via the existing `WindowsBleScanner` path. Active controls (noise mode, conversation boost, etc.) stay Linux/Android-only. Lowest effort, highest pragma.

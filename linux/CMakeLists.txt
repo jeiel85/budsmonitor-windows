@@ -9,6 +9,51 @@ if(WIN32)
 
     qt_standard_project_setup()
 
+    # Locate the Windows SDK cppwinrt headers dynamically so this builds on any
+    # machine with a recent Windows 10/11 SDK (not just the developer's box).
+    # Picks the highest-versioned installed SDK that ships cppwinrt.
+    set(_winsdk_roots
+        "C:/Program Files (x86)/Windows Kits/10/Include"
+        "C:/Program Files/Windows Kits/10/Include"
+    )
+    set(WINSDK_CPPWINRT_DIR "" CACHE PATH "Path to Windows SDK cppwinrt headers")
+    if(NOT WINSDK_CPPWINRT_DIR)
+        foreach(_root IN LISTS _winsdk_roots)
+            if(EXISTS "${_root}")
+                file(GLOB _versions RELATIVE "${_root}" "${_root}/10.*")
+                list(SORT _versions)
+                list(REVERSE _versions)
+                foreach(_v IN LISTS _versions)
+                    if(EXISTS "${_root}/${_v}/cppwinrt")
+                        set(WINSDK_CPPWINRT_DIR "${_root}/${_v}/cppwinrt")
+                        break()
+                    endif()
+                endforeach()
+            endif()
+            if(WINSDK_CPPWINRT_DIR)
+                break()
+            endif()
+        endforeach()
+    endif()
+    if(NOT WINSDK_CPPWINRT_DIR)
+        message(FATAL_ERROR
+            "cppwinrt headers not found. Install a Windows 10/11 SDK that includes "
+            "cppwinrt, or pass -DWINSDK_CPPWINRT_DIR=<path>.")
+    endif()
+    message(STATUS "Using cppwinrt headers from: ${WINSDK_CPPWINRT_DIR}")
+
+    # Same idea for the SDK 'shared' headers used by the HCI/L2CAP probes.
+    set(WINSDK_SHARED_DIR "" CACHE PATH "Path to Windows SDK shared headers")
+    if(NOT WINSDK_SHARED_DIR)
+        get_filename_component(_sdk_ver_dir "${WINSDK_CPPWINRT_DIR}" DIRECTORY)
+        if(EXISTS "${_sdk_ver_dir}/shared")
+            set(WINSDK_SHARED_DIR "${_sdk_ver_dir}/shared")
+        endif()
+    endif()
+    if(WINSDK_SHARED_DIR)
+        message(STATUS "Using SDK shared headers from: ${WINSDK_SHARED_DIR}")
+    endif()
+
     qt_add_executable(librepods-ble-parser-smoke
         tests/ble_parser_smoke.cpp
         enums.h
@@ -36,7 +81,7 @@ if(WIN32)
     target_compile_features(librepods-windows-ble-scanner-smoke PRIVATE cxx_std_20)
 
     target_include_directories(librepods-windows-ble-scanner-smoke PRIVATE
-        "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
+        ${WINSDK_CPPWINRT_DIR}
     )
 
     target_link_libraries(librepods-windows-ble-scanner-smoke
@@ -58,7 +103,7 @@ if(WIN32)
     target_compile_features(librepods-windows-tray-mvp PRIVATE cxx_std_20)
 
     target_include_directories(librepods-windows-tray-mvp PRIVATE
-        "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt"
+        ${WINSDK_CPPWINRT_DIR}
     )
 
     qt_add_resources(librepods-windows-tray-mvp "windows_tray_icons"
@@ -100,13 +145,33 @@ if(WIN32)
     target_compile_features(librepods-windows-hci-ioctl-probe PRIVATE cxx_std_17)
 
     target_include_directories(librepods-windows-hci-ioctl-probe PRIVATE
-        "C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/shared"
+        ${WINSDK_SHARED_DIR}
     )
 
     # Bthprops: BluetoothFindFirstRadio, BluetoothFindFirstDevice
     # kernel32: DeviceIoControl (already linked by default, but explicit)
     target_link_libraries(librepods-windows-hci-ioctl-probe
         PRIVATE Bthprops
+    )
+
+    # Embed UAC manifest so the exe auto-requests administrator elevation on launch
+    target_link_options(librepods-windows-hci-ioctl-probe PRIVATE
+        "/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+    )
+
+    # BR/EDR + L2CAP probe — waits for active Classic BT link, then retries L2CAP
+    add_executable(librepods-windows-bredr-l2cap-probe
+        tests/windows_bredr_l2cap_probe.cpp
+    )
+
+    target_compile_features(librepods-windows-bredr-l2cap-probe PRIVATE cxx_std_17)
+
+    target_include_directories(librepods-windows-bredr-l2cap-probe PRIVATE
+        ${WINSDK_SHARED_DIR}
+    )
+
+    target_link_libraries(librepods-windows-bredr-l2cap-probe
+        PRIVATE Bthprops ws2_32
     )
 
     return()

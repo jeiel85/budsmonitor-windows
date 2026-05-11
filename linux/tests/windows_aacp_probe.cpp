@@ -15,15 +15,20 @@
 //   socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM)        (ws2_32.lib)
 
 #define WIN32_LEAN_AND_MEAN
+#define NTDDI_VERSION 0x06020000   // Win8+
+#define _WIN32_WINNT  0x0602
 #ifndef UNICODE
 #define UNICODE
 #endif
 
 #include <windows.h>
+#include <winioctl.h>
 #include <winsock2.h>
 #include <ws2bth.h>
 #include <bluetoothapis.h>
 #include <bthsdpdef.h>
+#include <bthdef.h>
+#include <bthioctl.h>
 
 #include <cstdio>
 #include <cstring>
@@ -341,6 +346,19 @@ int main()
 
         wprintf(L"\n=== Probing device: %s ===\n", info.szName);
         BTH_ADDR bthAddr = bluetoothAddressToBthAddr(info.Address);
+
+        // fConnected reflects BR/EDR (Classic BT) status from the host stack.
+        // AACP runs over L2CAP which needs a BR/EDR ACL link — when this is FALSE
+        // the socket probes below will almost certainly fail with WSAENETDOWN.
+        if (!info.fConnected) {
+            wprintf(L"\n  NOTE: fConnected=FALSE — no active BR/EDR (Classic BT) link.\n");
+            wprintf(L"  AACP uses L2CAP which requires BR/EDR. Socket probes below will\n");
+            wprintf(L"  likely fail with WSAENETDOWN until a BR/EDR ACL link is active.\n");
+            wprintf(L"  --> Set AirPods as audio output, play audio, then run:\n");
+            wprintf(L"      librepods-windows-bredr-l2cap-probe.exe\n\n");
+        } else {
+            wprintf(L"\n  fConnected=TRUE — BR/EDR ACL link may be active.\n\n");
+        }
 
         // SDP query — returns discovered PSM (0 if not found)
         ULONG psm = querySdp(bthAddr, info.szName);

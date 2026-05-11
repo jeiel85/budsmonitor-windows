@@ -143,14 +143,49 @@ $env:Path = "C:\Qt\6.8.3\msvc2022_64\bin;$env:Path"
   - `IOCTL_BTH_HCI_VENDOR_COMMAND` ❌ 1314 (ERROR_PRIVILEGE_NOT_HELD) — **관리자 권한으로 실행 시 접근 가능 가능성**
   - 상세: `experiments/windows-feasibility/RESULTS.md`
 
+- 2026-05-10: BR/EDR 상태 힌트를 `windows_aacp_probe.cpp` main()에 추가 — `fConnected=FALSE` 검출 시 경고 메시지 및 bredr 프로브 안내 출력.
+- 2026-05-10: interactive BR/EDR + L2CAP 프로브 추가 (`linux/tests/windows_bredr_l2cap_probe.cpp`, target `librepods-windows-bredr-l2cap-probe`).
+  - IOCTL_BTH_GET_DEVICE_INFO로 BDIF_CONNECTED(0x20) 플래그 확인
+  - BR/EDR 미연결 시 사용자에게 오디오 재생 후 Enter 대기
+  - Enter 후 BDIF 재확인 → IOCTL_BTH_GET_RADIO_INFO → SDP PSM 조회 → L2CAP 소켓 시도
+- 전체 6개 Windows target 빌드 완료 (모두 에러 없음, C4819 경고만):
+  - `librepods-ble-parser-smoke.exe`
+  - `librepods-windows-ble-scanner-smoke.exe`
+  - `librepods-windows-tray-mvp.exe`
+  - `librepods-windows-aacp-probe.exe`
+  - `librepods-windows-hci-ioctl-probe.exe`
+  - `librepods-windows-bredr-l2cap-probe.exe`
+
 ## 다음 세션에서 이어갈 작업
 
-1. tray MVP를 실제로 장시간 실행하며 tooltip/context menu/popover 토글/배터리 표시를 육안 확인한다.
-2. AACP 제어 채널 탐색 — 우선 순위 순:
-   a. **관리자 권한으로 HCI probe 실행** → `IOCTL_BTH_HCI_VENDOR_COMMAND` 접근 여부 확인. 성공하면 raw HCI 명령 전송 가능
-   b. **오디오 재생 중 AACP probe 실행** → BR/EDR ACL 링크 활성 상태에서 L2CAP 소켓/IOCTL 동작 재확인
-   c. WDF kernel filter driver (개발용 test-signing 모드로 코드 서명 없이 가능)
-3. AACP 제어 채널 확보 후 `WindowsAirPodsState`에 noise control / ear detection 속성 추가, 옵션 C 진입 결정.
+- 2026-05-11: **두 후속 probe 모두 음성 결과로 종결**.
+  - 관리자 권한 HCI probe → `IOCTL_BTH_HCI_VENDOR_COMMAND` 여전히 1314 (PRIVILEGE_NOT_HELD). admin 권한 부족 — SYSTEM 또는 명시적 token privilege adjustment 필요.
+  - BR/EDR probe (`BluetoothSetServiceState`로 강제 시도) → A2DP/HFP 둘 다 87 (INVALID_PARAMETER), Headset은 1060 (서비스 없음). 60초 폴링에도 BR/EDR=0 변동 없음. L2CAP은 여전히 WSAENETDOWN.
+  - **결론**: Windows userspace AACP 제어는 모든 표준 경로가 OS 정책으로 막혀 있음. 상세는 `experiments/windows-feasibility/RESULTS.md`.
+
+## 남은 전략 (선택)
+
+1. **WSL2 + USB Bluetooth dongle passthrough** (`usbipd-win`):
+   - 실용적, 즉시 가능
+   - 기존 Linux 코드 그대로 사용
+   - 외장 USB BT 동글 필요 (내장 어댑터는 passthrough 불가)
+   - 장기 유지보수 비용 낮음
+
+2. **WDF Bluetooth filter driver**:
+   - Windows native 풀 솔루션
+   - 추가 하드웨어 불필요
+   - 코드 서명 필요 (개발용 test-signing 모드, 배포는 EV cert 또는 WHQL)
+   - 개발/유지보수 부담 큼
+
+3. **BLE-only Windows 버전으로 출시**:
+   - 즉시 가능 (이미 tray MVP 동작)
+   - 배터리/귀착용 감지/proximity 표시는 BLE만으로 충분
+   - 능동 제어(노이즈 캔슬링/대화 모드 등)는 Linux/Android 전용
+   - 노력 대비 사용자 가치 가장 높음
+
+## 권장: 옵션 3 → 1 단계적 진행
+
+먼저 **옵션 3** (BLE-only)으로 Windows 사용자에게 가치 제공, 동시에 **옵션 1** (WSL2 passthrough) 로드맵 검토. 옵션 2는 사용자 베이스가 충분히 커진 후 고려.
 
 ## 주의사항
 

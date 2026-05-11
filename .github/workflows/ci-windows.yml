@@ -1,0 +1,101 @@
+name: Build LibrePods Windows (BLE-only fork)
+
+# This fork builds only the Windows BLE-only tray client. The full AACP control
+# channel does not work on Windows because the OS blocks userspace L2CAP socket
+# access (see docs/windows-porting-progress.md and
+# experiments/windows-feasibility/RESULTS.md for the exhaustive probe results).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'windows/**'
+    paths:
+      - 'linux/CMakeLists.txt'
+      - 'linux/ble/**'
+      - 'linux/platform/windows/**'
+      - 'linux/tests/windows_*'
+      - 'linux/enums.h'
+      - 'linux/assets/airpods.png'
+      - '.github/workflows/ci-windows.yml'
+  pull_request:
+    paths:
+      - 'linux/CMakeLists.txt'
+      - 'linux/ble/**'
+      - 'linux/platform/windows/**'
+      - 'linux/tests/windows_*'
+      - '.github/workflows/ci-windows.yml'
+
+jobs:
+  build-windows:
+    name: Build Windows tray + diagnostic probes
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Qt 6.8.3 (msvc2022_64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          modules: 'qtshadertools'
+          cache: true
+
+      - name: Configure CMake
+        shell: cmd
+        run: |
+          cmake -S linux -B build/windows -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_PREFIX_PATH="%QT_ROOT_DIR%"
+
+      - name: Build all Windows targets
+        shell: cmd
+        run: cmake --build build/windows --config Release
+
+      - name: Stage release artifacts
+        shell: pwsh
+        run: |
+          $stage = "stage/librepods-windows"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          New-Item -ItemType Directory -Force -Path "$stage/probes" | Out-Null
+
+          # Main user-facing app
+          Copy-Item "build/windows/librepods-windows-tray-mvp.exe" "$stage/librepods-tray.exe"
+
+          # Diagnostic probes (for users investigating their own setup)
+          Copy-Item "build/windows/librepods-windows-aacp-probe.exe"        "$stage/probes/"
+          Copy-Item "build/windows/librepods-windows-hci-ioctl-probe.exe"   "$stage/probes/"
+          Copy-Item "build/windows/librepods-windows-bredr-l2cap-probe.exe" "$stage/probes/"
+          Copy-Item "build/windows/librepods-windows-ble-scanner-smoke.exe" "$stage/probes/"
+          Copy-Item "build/windows/librepods-ble-parser-smoke.exe"          "$stage/probes/"
+
+          # Run windeployqt to bundle Qt runtime DLLs alongside the tray exe
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" `
+            --release `
+            --no-translations `
+            --no-system-d3d-compiler `
+            --no-opengl-sw `
+            --qmldir linux/platform/windows/qml `
+            "$stage/librepods-tray.exe"
+
+          # Top-level note explaining what's in the package
+          Copy-Item "docs/windows-porting-progress.md" "$stage/PORTING-NOTES.md"
+          Copy-Item "experiments/windows-feasibility/RESULTS.md" "$stage/PROBE-RESULTS.md"
+
+      - name: Upload Windows BLE tray bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: librepods-windows-ble-tray
+          path: stage/librepods-windows
+          if-no-files-found: error
+          retention-days: 30
