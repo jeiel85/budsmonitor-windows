@@ -101,11 +101,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
+          # Asset name: librepods-<tag>.zip (tag itself already carries the
+          # "-windows-ble" suffix, so don't repeat it in the prefix).
           $tag = "${{ github.ref_name }}"
-          $zip = "librepods-windows-ble-$tag.zip"
+          $zip = "librepods-$tag.zip"
           Compress-Archive -Path "stage/librepods-windows/*" -DestinationPath $zip
           Write-Host "Created $zip"
           "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ZIP_NAME=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -120,7 +123,7 @@ jobs:
             Tray app for AirPods on Windows. **BLE-only**: battery, in-ear detection, proximity. Active control (noise mode, etc.) does not work on Windows due to OS-level L2CAP restrictions — see [`PROBE-RESULTS.md`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/experiments/windows-feasibility/RESULTS.md) for the evidence trail.
 
             ### Install
-            1. Download `librepods-windows-ble-${{ github.ref_name }}.zip`
+            1. Download `${{ env.ZIP_NAME }}`
             2. Extract anywhere
             3. Run `librepods-tray.exe`
 
