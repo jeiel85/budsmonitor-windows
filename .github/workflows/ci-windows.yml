@@ -11,14 +11,8 @@ on:
     branches:
       - main
       - 'windows/**'
-    paths:
-      - 'linux/CMakeLists.txt'
-      - 'linux/ble/**'
-      - 'linux/platform/windows/**'
-      - 'linux/tests/windows_*'
-      - 'linux/enums.h'
-      - 'linux/assets/airpods.png'
-      - '.github/workflows/ci-windows.yml'
+    tags:
+      - 'v*'
   pull_request:
     paths:
       - 'linux/CMakeLists.txt'
@@ -26,6 +20,9 @@ on:
       - 'linux/platform/windows/**'
       - 'linux/tests/windows_*'
       - '.github/workflows/ci-windows.yml'
+
+permissions:
+  contents: write   # for creating GitHub releases on tag push
 
 jobs:
   build-windows:
@@ -99,3 +96,34 @@ jobs:
           path: stage/librepods-windows
           if-no-files-found: error
           retention-days: 30
+
+      - name: Pack release archive
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zip = "librepods-windows-ble-$tag.zip"
+          Compress-Archive -Path "stage/librepods-windows/*" -DestinationPath $zip
+          Write-Host "Created $zip"
+          "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_PATH }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            ## LibrePods Windows BLE-only fork — ${{ github.ref_name }}
+
+            Tray app for AirPods on Windows. **BLE-only**: battery, in-ear detection, proximity. Active control (noise mode, etc.) does not work on Windows due to OS-level L2CAP restrictions — see [`PROBE-RESULTS.md`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/experiments/windows-feasibility/RESULTS.md) for the evidence trail.
+
+            ### Install
+            1. Download `librepods-windows-ble-${{ github.ref_name }}.zip`
+            2. Extract anywhere
+            3. Run `librepods-tray.exe`
+
+            ### Want full functionality?
+            - Use the [original Linux/Android client](https://github.com/kavishdevar/librepods)
+            - Or follow the [WSL2 + usbipd guide](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/docs/wsl2-usbipd-guide.md) (requires external USB Bluetooth dongle)
