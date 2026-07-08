@@ -1,4 +1,9 @@
 using System.Windows;
+using BudsMonitor.Infrastructure.Cache;
+using BudsMonitor.Infrastructure.Logging;
+using BudsMonitor.Infrastructure.Settings;
+using BudsMonitor.Infrastructure.Storage;
+using Serilog;
 
 namespace BudsMonitor.App;
 
@@ -21,6 +26,9 @@ public partial class App : System.Windows.Application
     private System.Windows.Forms.NotifyIcon? _notifyIcon;
     private MainWindow? _dashboardWindow;
     private SettingsWindow? _settingsWindow;
+    private StoragePaths? _storagePaths;
+    private BudsMonitorSettings? _settings;
+    private BatteryCacheFile? _batteryCache;
 
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
@@ -48,8 +56,32 @@ public partial class App : System.Windows.Application
             millisecondsTimeOutInterval: Timeout.Infinite,
             executeOnlyOnce: false);
 
+        InitializeStorageAndLogging();
         InitializeTrayIcon();
         ShowDashboard();
+    }
+
+    private void InitializeStorageAndLogging()
+    {
+        try
+        {
+            _storagePaths = StoragePaths.CreateDefault();
+            LoggingBootstrapper.Initialize(_storagePaths);
+
+            _settings = new SettingsRepository(_storagePaths).LoadOrCreate();
+            _batteryCache = new BatteryCacheRepository(_storagePaths).Load();
+
+            Log.Information(
+                "BudsMonitor started. theme={Theme}, minimizeToTray={MinimizeToTray}, cachedSnapshots={Count}",
+                _settings.App.Theme,
+                _settings.App.MinimizeToTray,
+                _batteryCache.Snapshots.Count);
+        }
+        catch (Exception ex)
+        {
+            // Storage/logging failure must not prevent the tray app from running.
+            System.Diagnostics.Debug.WriteLine($"BudsMonitor initialization failed: {ex}");
+        }
     }
 
     private void InitializeTrayIcon()
@@ -121,6 +153,7 @@ public partial class App : System.Windows.Application
     private void QuitApplication()
     {
         IsShuttingDown = true;
+        Log.Information("BudsMonitor shutting down");
 
         if (_notifyIcon is not null)
         {
@@ -138,6 +171,7 @@ public partial class App : System.Windows.Application
         _notifyIcon?.Dispose();
         _showRequestEvent?.Dispose();
         _singleInstanceMutex?.Dispose();
+        LoggingBootstrapper.Shutdown();
         base.OnExit(e);
     }
 }
