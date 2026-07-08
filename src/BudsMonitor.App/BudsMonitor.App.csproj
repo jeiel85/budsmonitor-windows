@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\BudsMonitor.Application\BudsMonitor.Application.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Bluetooth\BudsMonitor.Bluetooth.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Diagnostics\BudsMonitor.Diagnostics.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Infrastructure\BudsMonitor.Infrastructure.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Providers.AirPods\BudsMonitor.Providers.AirPods.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Providers.Gatt\BudsMonitor.Providers.Gatt.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Providers.GalaxyBuds\BudsMonitor.Providers.GalaxyBuds.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+</Project>

@@ -3,6 +3,13 @@ release
 .DS_Store
 CMakeLists.txt.user*
 
+# BudsMonitor .NET / Visual Studio
+.vs/
+artifacts/
+TestResults/
+*.suo
+*.user
+
 # Android Template
 
 
@@ -80,6 +87,8 @@ gen-external-apklibs
 *.exe
 *.out
 *.app
+!src/BudsMonitor.App/
+!src/BudsMonitor.App/**
 
 ### CLion ###
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
