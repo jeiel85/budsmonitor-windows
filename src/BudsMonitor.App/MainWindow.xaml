@@ -8,36 +8,32 @@
         Title="BudsMonitor"
         Height="480" Width="420"
         MinHeight="360" MinWidth="360"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource CanvasSoftBrush}">
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#0078D4" Padding="16,12">
+        <!-- nav-bar: quiet white chrome with a hairline underline -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource HairlineBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="20,14">
             <Grid>
-                <TextBlock Text="BudsMonitor"
-                           Foreground="White"
-                           FontSize="18"
-                           FontWeight="SemiBold"
-                           VerticalAlignment="Center" />
-                <Button Content="설정"
-                        HorizontalAlignment="Right"
-                        Padding="12,4"
-                        Click="OnSettingsClick" />
+                <TextBlock Text="BudsMonitor" Style="{StaticResource Title}" VerticalAlignment="Center" />
+                <Button Content="설정" Style="{StaticResource ButtonUtility}"
+                        HorizontalAlignment="Right" Click="OnSettingsClick" />
             </Grid>
         </Border>
-        <StackPanel VerticalAlignment="Center"
-                    HorizontalAlignment="Center"
-                    Margin="24">
+
+        <!-- empty state on the warm canvas -->
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="28">
             <TextBlock Text="아직 감지된 이어버드가 없습니다."
-                       FontSize="16"
-                       FontWeight="SemiBold"
-                       HorizontalAlignment="Center"
-                       TextAlignment="Center" />
+                       Style="{StaticResource Title}"
+                       TextWrapping="Wrap" MaxWidth="320"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
             <TextBlock Text="이어버드 케이스를 열거나 블루투스 오디오 기기를 연결하세요."
-                       Margin="0,8,0,0"
-                       Foreground="#666666"
-                       TextWrapping="Wrap"
-                       MaxWidth="300"
-                       HorizontalAlignment="Center"
-                       TextAlignment="Center" />
+                       Style="{StaticResource Caption}"
+                       Margin="0,10,0,0" TextWrapping="Wrap" MaxWidth="300"
+                       HorizontalAlignment="Center" TextAlignment="Center" />
         </StackPanel>
     </DockPanel>
 </Window>

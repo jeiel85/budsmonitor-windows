@@ -1,4 +1,5 @@
 using System.Windows;
+using Microsoft.Win32;
 using BudsMonitor.Bluetooth;
 using BudsMonitor.Domain;
 using BudsMonitor.Infrastructure.Cache;
@@ -65,6 +66,7 @@ public partial class App : System.Windows.Application
             executeOnlyOnce: false);
 
         InitializeStorageAndLogging();
+        ApplyTheme(_settings?.App.Theme);
         InitializeTrayIcon();
         InitializeScanner();
         ShowDashboard();
@@ -90,6 +92,39 @@ public partial class App : System.Windows.Application
         {
             // Storage/logging failure must not prevent the tray app from running.
             System.Diagnostics.Debug.WriteLine($"BudsMonitor initialization failed: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Applies the light/dark theme by swapping the merged color dictionary.
+    /// "system" follows the Windows app theme; DynamicResource brushes update live.
+    /// </summary>
+    internal void ApplyTheme(string? themeSetting)
+    {
+        var dark = themeSetting?.ToLowerInvariant() switch
+        {
+            "dark" => true,
+            "light" => false,
+            _ => IsWindowsDarkTheme(),
+        };
+
+        var source = new Uri(dark ? "Themes/Dark.xaml" : "Themes/Light.xaml", UriKind.Relative);
+        var merged = Resources.MergedDictionaries;
+        merged.Clear();
+        merged.Add(new ResourceDictionary { Source = source });
+    }
+
+    private static bool IsWindowsDarkTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 
