@@ -45,6 +45,9 @@ internal sealed class DeviceRegistry
 
     public DeviceRegistryEntry? Get(string key) => _entries.GetValueOrDefault(key);
 
+    /// <summary>Point-in-time copy of all registry entries (for diagnostics export).</summary>
+    public IReadOnlyList<DeviceRegistryEntry> Snapshot() => _entries.Values.ToList();
+
     public void SetPinned(string key, bool pinned) => Mutate(key, e => e with { IsPinned = pinned });
 
     public void SetHidden(string key, bool hidden) => Mutate(key, e => e with { IsHidden = hidden });

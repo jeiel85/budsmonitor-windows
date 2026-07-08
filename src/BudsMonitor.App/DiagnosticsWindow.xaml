@@ -1,0 +1,56 @@
+<Window x:Class="BudsMonitor.App.DiagnosticsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:BudsMonitor.App"
+        mc:Ignorable="d"
+        Title="진단 - BudsMonitor"
+        Height="560" Width="460"
+        MinHeight="420" MinWidth="420"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource CanvasSoftBrush}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="24">
+            <TextBlock Text="진단" Style="{StaticResource Heading2}" />
+            <TextBlock Text="문제 진단용 데이터를 로컬 ZIP 번들로 내보냅니다. 어디에도 자동 전송되지 않습니다."
+                       Style="{StaticResource Caption}" Margin="0,4,0,20" TextWrapping="Wrap" />
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="환경" Style="{StaticResource Title}" Margin="0,0,0,12" />
+                    <ItemsControl x:Name="SummaryItems">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="0,3">
+                                    <TextBlock Text="{Binding Key}" DockPanel.Dock="Left" Width="112"
+                                               Foreground="{DynamicResource InkMutedBrush}" />
+                                    <TextBlock Text="{Binding Value}" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="번들 생성" Style="{StaticResource Title}" Margin="0,0,0,12" />
+                    <TextBlock Text="Bluetooth 주소는 기본적으로 마스킹됩니다. 원시 페이로드 포함 여부는 설정 &gt; 개인정보에서 제어합니다."
+                               Style="{StaticResource Caption}" Margin="0,0,0,14" TextWrapping="Wrap" />
+                    <Button x:Name="GenerateButton" Content="진단 번들 생성 (ZIP)"
+                            Style="{StaticResource ButtonPrimary}"
+                            HorizontalAlignment="Left" Click="OnGenerateClick" />
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Content="진단 폴더 열기" Style="{StaticResource ButtonUtility}"
+                                Click="OnOpenDiagnosticsClick" Margin="0,0,8,0" />
+                        <Button Content="로그 폴더 열기" Style="{StaticResource ButtonUtility}"
+                                Click="OnOpenLogsClick" />
+                    </StackPanel>
+                    <TextBlock x:Name="ResultText" Style="{StaticResource Caption}"
+                               Margin="0,14,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

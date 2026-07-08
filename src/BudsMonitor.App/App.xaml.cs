@@ -1,8 +1,10 @@
+using System.IO;
 using System.Windows;
 using Microsoft.Win32;
 using BudsMonitor.App.ViewModels;
 using BudsMonitor.Application;
 using BudsMonitor.Bluetooth;
+using BudsMonitor.Diagnostics;
 using BudsMonitor.Domain;
 using BudsMonitor.Infrastructure.Cache;
 using BudsMonitor.Infrastructure.Devices;
@@ -56,6 +58,12 @@ public partial class App : System.Windows.Application
     private bool _gattPolling;
     private DeviceRegistry? _deviceRegistry;
     private bool _showHiddenDevices;
+
+    private DiagnosticsWindow? _diagnosticsWindow;
+    private const int MaxRecentAdvertisements = 40;
+    private readonly object _adSamplesLock = new();
+    private readonly LinkedList<DiagnosticsAdvertisementSample> _recentAdvertisements = new();
+    private IReadOnlyList<DiagnosticsProviderAttempt> _lastGattAttempts = [];
 
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
@@ -187,6 +195,8 @@ public partial class App : System.Windows.Application
                 {
                     Log.Information("BLE scanner receiving advertisements (first frame)");
                 }
+
+                RecordAdvertisement(frame);
 
                 if (!_airPodsProvider.TryParseAdvertisement(frame, out var result) || result.Snapshot is null)
                 {
@@ -334,9 +344,21 @@ public partial class App : System.Windows.Application
         {
             var devices = await _deviceEnumerator.GetPairedDevicesAsync(CancellationToken.None);
             var withBattery = 0;
+            var attempts = new List<DiagnosticsProviderAttempt>(devices.Count);
             foreach (var candidate in devices)
             {
                 var result = await _gattProvider.ReadAsync(candidate, CancellationToken.None);
+                attempts.Add(new DiagnosticsProviderAttempt
+                {
+                    ProviderId = result.ProviderId,
+                    DeviceKey = candidate.StableDeviceKey,
+                    DisplayName = candidate.DisplayName,
+                    Status = result.Status.ToString(),
+                    FailureReason = result.Failure?.Reason.ToString(),
+                    Message = result.Failure?.Message,
+                    AttemptedAt = DateTimeOffset.Now,
+                });
+
                 if (result is { Status: BatteryReadStatus.Success, Snapshot: not null })
                 {
                     withBattery++;
@@ -353,6 +375,7 @@ public partial class App : System.Windows.Application
                 }
             }
 
+            _lastGattAttempts = attempts;
             Log.Information("GATT poll: {Total} paired BLE device(s), {WithBattery} with battery",
                 devices.Count, withBattery);
         }
@@ -448,6 +471,166 @@ public partial class App : System.Windows.Application
         }
     }
 
+    // ----- Diagnostics (GOAL 9) -------------------------------------------------
+
+    /// <summary>Keeps a small ring buffer of the most recent advertisements for diagnostics.</summary>
+    private void RecordAdvertisement(BleAdvertisementFrame frame)
+    {
+        var sample = new DiagnosticsAdvertisementSample
+        {
+            ReceivedAt = frame.ReceivedAt,
+            CompanyId = frame.CompanyId,
+            BluetoothAddress = frame.BluetoothAddress,
+            DataLength = frame.ManufacturerData.Length,
+            Rssi = frame.RawRssi,
+            LocalName = frame.LocalName,
+            ManufacturerData = frame.ManufacturerData,
+        };
+
+        lock (_adSamplesLock)
+        {
+            _recentAdvertisements.AddLast(sample);
+            while (_recentAdvertisements.Count > MaxRecentAdvertisements)
+            {
+                _recentAdvertisements.RemoveFirst();
+            }
+        }
+    }
+
+    private DiagnosticsInput BuildDiagnosticsInput(DateTimeOffset now)
+    {
+        List<DiagnosticsAdvertisementSample> advertisements;
+        lock (_adSamplesLock)
+        {
+            advertisements = _recentAdvertisements.ToList();
+        }
+
+        var attempts = new List<DiagnosticsProviderAttempt>(_lastGattAttempts);
+        foreach (var snapshot in _latestSnapshots.Values)
+        {
+            if (snapshot.Source is BatteryDataSource.AirPodsBleAdvertisement
+                or BatteryDataSource.GalaxyBudsProvider)
+            {
+                attempts.Add(new DiagnosticsProviderAttempt
+                {
+                    ProviderId = snapshot.Source.ToString(),
+                    DeviceKey = snapshot.StableDeviceKey,
+                    DisplayName = snapshot.DisplayName,
+                    Status = BatteryReadStatus.Success.ToString(),
+                    AttemptedAt = snapshot.MeasuredAt,
+                });
+            }
+        }
+
+        return new DiagnosticsInput
+        {
+            GeneratedAt = now,
+            MaskBluetoothAddresses = _settings?.Privacy.MaskBluetoothAddressesInLogs ?? true,
+            IncludeRawPayloads = _settings?.Privacy.IncludeRawPayloadsInDiagnostics ?? false,
+            AppVersion = GetAppVersion(),
+            Settings = _settings,
+            Devices = new DeviceRegistryFile { Devices = _deviceRegistry?.Snapshot() ?? [] },
+            BatteryCache = new BatteryCacheFile
+            {
+                Snapshots = _latestSnapshots.Values.Select(CacheMapping.ToCache).ToList(),
+            },
+            Scanner = new DiagnosticsScannerStatus
+            {
+                State = _scanner?.State.ToString() ?? "Unknown",
+                LastError = _scanner?.LastError?.ToString(),
+                TotalFramesReceived = _totalFramesReceived,
+            },
+            ProviderAttempts = attempts,
+            AdvertisementSamples = advertisements,
+        };
+    }
+
+    /// <summary>Generates a diagnostics ZIP off the UI thread and returns its path (or null).</summary>
+    internal async Task<string?> ExportDiagnosticsAsync()
+    {
+        if (_storagePaths is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var input = BuildDiagnosticsInput(DateTimeOffset.Now);
+            var service = new DiagnosticsExportService(_storagePaths);
+            var path = await Task.Run(() => service.Export(input));
+            Log.Information("Diagnostics bundle created: {Path}", path);
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Diagnostics export failed");
+            return null;
+        }
+    }
+
+    /// <summary>Labeled key/value rows shown in the diagnostics window.</summary>
+    internal IReadOnlyList<KeyValuePair<string, string>> BuildDiagnosticsSummaryLines()
+    {
+        var input = BuildDiagnosticsInput(DateTimeOffset.Now);
+        return
+        [
+            new("앱 버전", input.AppVersion ?? "-"),
+            new("OS", System.Runtime.InteropServices.RuntimeInformation.OSDescription),
+            new(".NET", System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription),
+            new("스캐너 상태", input.Scanner?.State ?? "-"),
+            new("수신 프레임", (input.Scanner?.TotalFramesReceived ?? 0).ToString()),
+            new("최근 광고 샘플", input.AdvertisementSamples.Count.ToString()),
+            new("감지 기기", (input.BatteryCache?.Snapshots.Count ?? 0).ToString()),
+            new("주소 마스킹", input.MaskBluetoothAddresses ? "켜짐(기본)" : "꺼짐"),
+            new("원시 페이로드", input.IncludeRawPayloads ? "포함" : "제외(기본)"),
+        ];
+    }
+
+    internal void ShowDiagnosticsWindow()
+    {
+        if (_diagnosticsWindow is null)
+        {
+            _diagnosticsWindow = new DiagnosticsWindow();
+            _diagnosticsWindow.Closed += (_, _) => _diagnosticsWindow = null;
+        }
+
+        if (!_diagnosticsWindow.IsVisible)
+        {
+            _diagnosticsWindow.Show();
+        }
+
+        _diagnosticsWindow.Activate();
+    }
+
+    internal void OpenLogsFolder() => OpenFolder(_storagePaths?.LogsDirectory);
+
+    internal void OpenDiagnosticsFolder() => OpenFolder(_storagePaths?.DiagnosticsDirectory);
+
+    private static void OpenFolder(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(path);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Open folder failed: {Path}", path);
+        }
+    }
+
+    private static string GetAppVersion()
+        => System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+
     private void SaveCacheThrottled(BatterySnapshot snapshot, DateTimeOffset now)
     {
         _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
@@ -537,7 +720,7 @@ public partial class App : System.Windows.Application
         menu.Items.Add("대시보드 열기", image: null, (_, _) => ShowDashboard());
         // These surfaces are wired up in later goals (scanner / diagnostics).
         menu.Items.Add("지금 새로 고침", image: null, async (_, _) => await RestartScannerAsync());
-        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("진단") { Enabled = false });
+        menu.Items.Add("진단", image: null, (_, _) => ShowDiagnosticsWindow());
         menu.Items.Add("설정", image: null, (_, _) => ShowSettingsWindow());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("종료", image: null, (_, _) => QuitApplication());

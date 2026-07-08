@@ -20,4 +20,20 @@ public partial class SettingsWindow : Window
             app.SetShowHiddenDevices(checkBox.IsChecked == true);
         }
     }
+
+    private void OnOpenDiagnostics(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Application.Current is App app)
+        {
+            app.ShowDiagnosticsWindow();
+        }
+    }
+
+    private void OnOpenLogs(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Application.Current is App app)
+        {
+            app.OpenLogsFolder();
+        }
+    }
 }
