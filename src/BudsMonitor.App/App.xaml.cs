@@ -1,5 +1,143 @@
+using System.Windows;
+
 namespace BudsMonitor.App;
 
+/// <summary>
+/// Application entry point for the tray-first shell (GOAL 1).
+/// Owns the tray icon, enforces a single running instance, and manages the
+/// dashboard/settings windows. The app keeps running in the tray until the
+/// user explicitly chooses Quit.
+/// </summary>
 public partial class App : System.Windows.Application
 {
+    private const string SingleInstanceMutexName =
+        @"Local\BudsMonitor.SingleInstance.4b8e1c0e-2b8a-4c2f-9a1d-3f6e5d7c9a10";
+    private const string ShowRequestEventName =
+        @"Local\BudsMonitor.ShowRequest.4b8e1c0e-2b8a-4c2f-9a1d-3f6e5d7c9a10";
+
+    private Mutex? _singleInstanceMutex;
+    private EventWaitHandle? _showRequestEvent;
+    private RegisteredWaitHandle? _showRequestWait;
+    private System.Windows.Forms.NotifyIcon? _notifyIcon;
+    private MainWindow? _dashboardWindow;
+    private SettingsWindow? _settingsWindow;
+
+    /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
+    public bool IsShuttingDown { get; private set; }
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+
+        _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out bool createdNew);
+        _showRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowRequestEventName);
+
+        if (!createdNew)
+        {
+            // Another instance already owns the tray. Ask it to surface the dashboard, then exit.
+            _showRequestEvent.Set();
+            Shutdown();
+            return;
+        }
+
+        // Wake up and show the dashboard when a second instance signals us.
+        _showRequestWait = ThreadPool.RegisterWaitForSingleObject(
+            _showRequestEvent,
+            (_, _) => Dispatcher.InvokeAsync(ShowDashboard),
+            state: null,
+            millisecondsTimeOutInterval: Timeout.Infinite,
+            executeOnlyOnce: false);
+
+        InitializeTrayIcon();
+        ShowDashboard();
+    }
+
+    private void InitializeTrayIcon()
+    {
+        var menu = new System.Windows.Forms.ContextMenuStrip();
+        menu.Items.Add("대시보드 열기", image: null, (_, _) => ShowDashboard());
+        // These surfaces are wired up in later goals (scanner / diagnostics).
+        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("지금 새로 고침") { Enabled = false });
+        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("진단") { Enabled = false });
+        menu.Items.Add("설정", image: null, (_, _) => ShowSettingsWindow());
+        menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
+        menu.Items.Add("종료", image: null, (_, _) => QuitApplication());
+
+        _notifyIcon = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = LoadTrayIcon(),
+            Text = "BudsMonitor",
+            Visible = true,
+            ContextMenuStrip = menu,
+        };
+        _notifyIcon.DoubleClick += (_, _) => ShowDashboard();
+    }
+
+    private static System.Drawing.Icon LoadTrayIcon()
+    {
+        var resource = GetResourceStream(new Uri("pack://application:,,,/Assets/tray.ico"));
+        if (resource is null)
+        {
+            return System.Drawing.SystemIcons.Application;
+        }
+
+        using var stream = resource.Stream;
+        return new System.Drawing.Icon(stream);
+    }
+
+    private void ShowDashboard()
+    {
+        _dashboardWindow ??= new MainWindow();
+
+        if (!_dashboardWindow.IsVisible)
+        {
+            _dashboardWindow.Show();
+        }
+
+        if (_dashboardWindow.WindowState == WindowState.Minimized)
+        {
+            _dashboardWindow.WindowState = WindowState.Normal;
+        }
+
+        _dashboardWindow.Activate();
+    }
+
+    internal void ShowSettingsWindow()
+    {
+        if (_settingsWindow is null)
+        {
+            _settingsWindow = new SettingsWindow();
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        }
+
+        if (!_settingsWindow.IsVisible)
+        {
+            _settingsWindow.Show();
+        }
+
+        _settingsWindow.Activate();
+    }
+
+    private void QuitApplication()
+    {
+        IsShuttingDown = true;
+
+        if (_notifyIcon is not null)
+        {
+            _notifyIcon.Visible = false;
+            _notifyIcon.Dispose();
+            _notifyIcon = null;
+        }
+
+        Shutdown();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _showRequestWait?.Unregister(waitObject: null);
+        _notifyIcon?.Dispose();
+        _showRequestEvent?.Dispose();
+        _singleInstanceMutex?.Dispose();
+        base.OnExit(e);
+    }
 }
