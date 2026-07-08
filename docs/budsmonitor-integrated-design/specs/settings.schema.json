@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BudsMonitor Settings",
+  "type": "object",
+  "required": ["version", "app", "monitoring", "notifications", "privacy"],
+  "properties": {
+    "version": { "type": "integer", "minimum": 1 },
+    "app": {
+      "type": "object",
+      "required": ["startWithWindows", "minimizeToTray", "theme", "language"],
+      "properties": {
+        "startWithWindows": { "type": "boolean" },
+        "minimizeToTray": { "type": "boolean" },
+        "theme": { "enum": ["system", "light", "dark"] },
+        "language": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "monitoring": {
+      "type": "object",
+      "required": [
+        "enableAirPodsBleScanner",
+        "enableGenericGattRefresh",
+        "genericGattPollingIntervalSeconds",
+        "staleAfterSeconds",
+        "lastKnownVisibleForHours"
+      ],
+      "properties": {
+        "enableAirPodsBleScanner": { "type": "boolean" },
+        "enableGenericGattRefresh": { "type": "boolean" },
+        "genericGattPollingIntervalSeconds": { "type": "integer", "minimum": 30 },
+        "staleAfterSeconds": { "type": "integer", "minimum": 10 },
+        "lastKnownVisibleForHours": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "notifications": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "earbudLowBatteryThreshold",
+        "caseLowBatteryThreshold",
+        "suppressRepeatedMinutes",
+        "notifyFromStaleData",
+        "quietHoursEnabled",
+        "quietHoursStart",
+        "quietHoursEnd"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "earbudLowBatteryThreshold": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "caseLowBatteryThreshold": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "suppressRepeatedMinutes": { "type": "integer", "minimum": 1 },
+        "notifyFromStaleData": { "type": "boolean" },
+        "quietHoursEnabled": { "type": "boolean" },
+        "quietHoursStart": { "type": "string" },
+        "quietHoursEnd": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "required": [
+        "maskBluetoothAddressesInLogs",
+        "includeRawPayloadsInDiagnostics",
+        "analyticsEnabled",
+        "networkEnabled"
+      ],
+      "properties": {
+        "maskBluetoothAddressesInLogs": { "type": "boolean" },
+        "includeRawPayloadsInDiagnostics": { "type": "boolean" },
+        "analyticsEnabled": { "const": false },
+        "networkEnabled": { "const": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
