@@ -10,6 +10,9 @@
                 <ResourceDictionary Source="Themes/Light.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <BooleanToVisibilityConverter x:Key="BoolToVisible" />
+            <local:InverseBoolToVisibilityConverter x:Key="BoolToCollapsed" />
+
             <!-- ===== Type ===== -->
             <FontFamily x:Key="AppFontFamily">Inter, Segoe UI, Arial</FontFamily>
 

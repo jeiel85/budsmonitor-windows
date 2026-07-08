@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:BudsMonitor.App"
+        xmlns:vm="clr-namespace:BudsMonitor.App.ViewModels"
         mc:Ignorable="d"
         Title="BudsMonitor"
         Height="480" Width="420"
@@ -11,7 +12,7 @@
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource CanvasSoftBrush}">
     <DockPanel>
-        <!-- nav-bar: quiet white chrome with a hairline underline -->
+        <!-- nav-bar: quiet white/dark chrome with a hairline underline -->
         <Border DockPanel.Dock="Top"
                 Background="{DynamicResource SurfaceBrush}"
                 BorderBrush="{DynamicResource HairlineBrush}"
@@ -24,16 +25,80 @@
             </Grid>
         </Border>
 
-        <!-- empty state on the warm canvas -->
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="28">
-            <TextBlock Text="아직 감지된 이어버드가 없습니다."
-                       Style="{StaticResource Title}"
-                       TextWrapping="Wrap" MaxWidth="320"
-                       HorizontalAlignment="Center" TextAlignment="Center" />
-            <TextBlock Text="이어버드 케이스를 열거나 블루투스 오디오 기기를 연결하세요."
-                       Style="{StaticResource Caption}"
-                       Margin="0,10,0,0" TextWrapping="Wrap" MaxWidth="300"
-                       HorizontalAlignment="Center" TextAlignment="Center" />
-        </StackPanel>
+        <Grid>
+            <!-- empty state -->
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="28"
+                        Visibility="{Binding HasDevices, Converter={StaticResource BoolToCollapsed}}">
+                <TextBlock Text="아직 감지된 이어버드가 없습니다."
+                           Style="{StaticResource Title}"
+                           TextWrapping="Wrap" MaxWidth="320"
+                           HorizontalAlignment="Center" TextAlignment="Center" />
+                <TextBlock Text="이어버드 케이스를 열거나 블루투스 오디오 기기를 연결하세요."
+                           Style="{StaticResource Caption}"
+                           Margin="0,10,0,0" TextWrapping="Wrap" MaxWidth="300"
+                           HorizontalAlignment="Center" TextAlignment="Center" />
+            </StackPanel>
+
+            <!-- device cards -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding HasDevices, Converter={StaticResource BoolToVisible}}">
+                <ItemsControl ItemsSource="{Binding Devices}" Margin="16">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type vm:DeviceCardViewModel}">
+                            <Border Style="{StaticResource Card}" Margin="0,0,0,12" Opacity="{Binding CardOpacity}">
+                                <StackPanel>
+                                    <Grid>
+                                        <TextBlock Text="{Binding DisplayName}" Style="{StaticResource Title}"
+                                                   VerticalAlignment="Center" />
+                                        <Border HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                Background="{DynamicResource CanvasSoftBrush}"
+                                                BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
+                                                CornerRadius="10" Padding="8,3">
+                                            <TextBlock Text="{Binding FreshnessBadge}" Style="{StaticResource Eyebrow}" />
+                                        </Border>
+                                    </Grid>
+
+                                    <StackPanel Margin="0,14,0,0">
+                                        <DockPanel Margin="0,4"
+                                                   Visibility="{Binding HasLeft, Converter={StaticResource BoolToVisible}}">
+                                            <TextBlock Text="왼쪽" DockPanel.Dock="Left"
+                                                       Foreground="{DynamicResource InkMutedBrush}" />
+                                            <TextBlock Text="충전 중" DockPanel.Dock="Right" Margin="8,0,0,0"
+                                                       Foreground="{DynamicResource AccentGreenBrush}"
+                                                       Visibility="{Binding LeftCharging, Converter={StaticResource BoolToVisible}}" />
+                                            <TextBlock Text="{Binding LeftValue}" HorizontalAlignment="Right"
+                                                       FontWeight="SemiBold" />
+                                        </DockPanel>
+                                        <DockPanel Margin="0,4"
+                                                   Visibility="{Binding HasRight, Converter={StaticResource BoolToVisible}}">
+                                            <TextBlock Text="오른쪽" DockPanel.Dock="Left"
+                                                       Foreground="{DynamicResource InkMutedBrush}" />
+                                            <TextBlock Text="충전 중" DockPanel.Dock="Right" Margin="8,0,0,0"
+                                                       Foreground="{DynamicResource AccentGreenBrush}"
+                                                       Visibility="{Binding RightCharging, Converter={StaticResource BoolToVisible}}" />
+                                            <TextBlock Text="{Binding RightValue}" HorizontalAlignment="Right"
+                                                       FontWeight="SemiBold" />
+                                        </DockPanel>
+                                        <DockPanel Margin="0,4"
+                                                   Visibility="{Binding HasCase, Converter={StaticResource BoolToVisible}}">
+                                            <TextBlock Text="케이스" DockPanel.Dock="Left"
+                                                       Foreground="{DynamicResource InkMutedBrush}" />
+                                            <TextBlock Text="충전 중" DockPanel.Dock="Right" Margin="8,0,0,0"
+                                                       Foreground="{DynamicResource AccentGreenBrush}"
+                                                       Visibility="{Binding CaseCharging, Converter={StaticResource BoolToVisible}}" />
+                                            <TextBlock Text="{Binding CaseValue}" HorizontalAlignment="Right"
+                                                       FontWeight="SemiBold" />
+                                        </DockPanel>
+                                    </StackPanel>
+
+                                    <TextBlock Text="{Binding StatusLine}" Style="{StaticResource Caption}"
+                                               Margin="0,12,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
     </DockPanel>
 </Window>

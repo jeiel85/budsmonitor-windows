@@ -1,11 +1,13 @@
 using System.Windows;
 using Microsoft.Win32;
+using BudsMonitor.App.ViewModels;
 using BudsMonitor.Bluetooth;
 using BudsMonitor.Domain;
 using BudsMonitor.Infrastructure.Cache;
 using BudsMonitor.Infrastructure.Logging;
 using BudsMonitor.Infrastructure.Settings;
 using BudsMonitor.Infrastructure.Storage;
+using BudsMonitor.Providers.AirPods;
 using Serilog;
 
 namespace BudsMonitor.App;
@@ -37,7 +39,12 @@ public partial class App : System.Windows.Application
     private readonly Dictionary<ulong, DateTimeOffset> _lastAppleLog = new();
     private int _totalFramesReceived;
 
-    private const ushort AppleCompanyId = 0x004C;
+    private readonly DashboardViewModel _dashboard = new();
+    private readonly AirPodsBleAdvertisementProvider _airPodsProvider = new();
+    private readonly Dictionary<string, BatterySnapshot> _latestSnapshots = new();
+    private BatteryCacheRepository? _cacheRepository;
+    private System.Windows.Threading.DispatcherTimer? _staleTimer;
+    private DateTimeOffset _lastCacheSave = DateTimeOffset.MinValue;
 
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
@@ -70,6 +77,8 @@ public partial class App : System.Windows.Application
         InitializeTrayIcon();
         InitializeScanner();
         ShowDashboard();
+        StartStaleTimer();
+        UpdateTrayFromDashboard();
     }
 
     private void InitializeStorageAndLogging()
@@ -80,7 +89,9 @@ public partial class App : System.Windows.Application
             LoggingBootstrapper.Initialize(_storagePaths);
 
             _settings = new SettingsRepository(_storagePaths).LoadOrCreate();
-            _batteryCache = new BatteryCacheRepository(_storagePaths).Load();
+            _cacheRepository = new BatteryCacheRepository(_storagePaths);
+            _batteryCache = _cacheRepository.Load();
+            LoadCachedDevices();
 
             Log.Information(
                 "BudsMonitor started. theme={Theme}, minimizeToTray={MinimizeToTray}, cachedSnapshots={Count}",
@@ -164,25 +175,22 @@ public partial class App : System.Windows.Application
                     Log.Information("BLE scanner receiving advertisements (first frame)");
                 }
 
-                if (frame.CompanyId != AppleCompanyId)
+                if (!_airPodsProvider.TryParseAdvertisement(frame, out var result) || result.Snapshot is null)
                 {
                     continue;
                 }
 
-                // Throttle per device so a busy room does not flood the log.
-                if (_lastAppleLog.TryGetValue(frame.BluetoothAddress, out var last)
-                    && (frame.ReceivedAt - last) < TimeSpan.FromSeconds(5))
-                {
-                    continue;
-                }
+                var snapshot = result.Snapshot;
+                var now = DateTimeOffset.Now;
 
-                _lastAppleLog[frame.BluetoothAddress] = frame.ReceivedAt;
-                Log.Information(
-                    "Apple BLE frame addr={Address} rssi={Rssi} len={Length} data={Data}",
-                    FormatAddress(frame.BluetoothAddress),
-                    frame.RawRssi,
-                    frame.ManufacturerData.Length,
-                    Convert.ToHexString(frame.ManufacturerData));
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    _dashboard.Upsert(snapshot, now);
+                    UpdateTrayFromDashboard();
+                });
+
+                SaveCacheThrottled(snapshot, now);
+                LogSnapshotThrottled(snapshot, frame);
             }
         }
         catch (OperationCanceledException)
@@ -257,6 +265,93 @@ public partial class App : System.Windows.Application
             : string.Join(":", bytes.Select(b => b.ToString("X2")));
     }
 
+    private void LoadCachedDevices()
+    {
+        if (_batteryCache is null)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        foreach (var cached in _batteryCache.Snapshots)
+        {
+            var snapshot = CacheMapping.ToDomain(cached);
+            _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
+            _dashboard.Upsert(snapshot, now);
+        }
+    }
+
+    private void StartStaleTimer()
+    {
+        _staleTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(5),
+        };
+        _staleTimer.Tick += (_, _) =>
+        {
+            _dashboard.RefreshFreshness(DateTimeOffset.Now);
+            UpdateTrayFromDashboard();
+        };
+        _staleTimer.Start();
+    }
+
+    private void UpdateTrayFromDashboard()
+    {
+        if (_notifyIcon is null)
+        {
+            return;
+        }
+
+        var text = _dashboard.BuildTraySummary();
+        _notifyIcon.Text = text.Length <= 63 ? text : text[..63];
+    }
+
+    private void SaveCacheThrottled(BatterySnapshot snapshot, DateTimeOffset now)
+    {
+        _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
+        if (now - _lastCacheSave < TimeSpan.FromSeconds(30))
+        {
+            return;
+        }
+
+        _lastCacheSave = now;
+        try
+        {
+            var file = new BatteryCacheFile
+            {
+                Snapshots = _latestSnapshots.Values.Select(CacheMapping.ToCache).ToList(),
+            };
+            _cacheRepository?.Save(file);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Battery cache save failed");
+        }
+    }
+
+    private void LogSnapshotThrottled(BatterySnapshot snapshot, BleAdvertisementFrame frame)
+    {
+        if (_lastAppleLog.TryGetValue(frame.BluetoothAddress, out var last)
+            && (frame.ReceivedAt - last) < TimeSpan.FromSeconds(5))
+        {
+            return;
+        }
+
+        _lastAppleLog[frame.BluetoothAddress] = frame.ReceivedAt;
+        Log.Information("AirPods {Model} addr={Address}: L={Left} R={Right} Case={Case}",
+            snapshot.ModelName,
+            FormatAddress(frame.BluetoothAddress),
+            ComponentValue(snapshot, BatteryComponentType.LeftBud),
+            ComponentValue(snapshot, BatteryComponentType.RightBud),
+            ComponentValue(snapshot, BatteryComponentType.Case));
+    }
+
+    private static string ComponentValue(BatterySnapshot snapshot, BatteryComponentType type)
+    {
+        var component = snapshot.Components.FirstOrDefault(c => c.Type == type);
+        return component is null ? "—" : $"{component.Percentage}%";
+    }
+
     private void InitializeTrayIcon()
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
@@ -292,7 +387,7 @@ public partial class App : System.Windows.Application
 
     private void ShowDashboard()
     {
-        _dashboardWindow ??= new MainWindow();
+        _dashboardWindow ??= new MainWindow { DataContext = _dashboard };
 
         if (!_dashboardWindow.IsVisible)
         {
@@ -328,6 +423,7 @@ public partial class App : System.Windows.Application
         IsShuttingDown = true;
         Log.Information("BudsMonitor shutting down");
 
+        _staleTimer?.Stop();
         _frameConsumerCts?.Cancel();
         _scanner?.Dispose();
 
