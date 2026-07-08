@@ -25,6 +25,9 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
     public bool LeftCharging { get; private set; }
     public bool RightCharging { get; private set; }
     public bool CaseCharging { get; private set; }
+    public bool HasWholeDevice { get; private set; }
+    public string WholeDeviceValue { get; private set; } = "—";
+    public bool WholeDeviceCharging { get; private set; }
     public string StatusLine { get; private set; } = "";
     public string FreshnessBadge { get; private set; } = "";
     public double CardOpacity { get; private set; } = 1.0;
@@ -53,6 +56,11 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
         HasCase = caseComp is not null;
         CaseValue = Format(caseComp);
         CaseCharging = caseComp?.IsCharging ?? false;
+
+        var whole = Find(snapshot, BatteryComponentType.WholeDevice);
+        HasWholeDevice = whole is not null;
+        WholeDeviceValue = Format(whole);
+        WholeDeviceCharging = whole?.IsCharging ?? false;
 
         RefreshFreshness(now);
         RaiseAll();
@@ -108,6 +116,7 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
             nameof(DisplayName), nameof(LeftValue), nameof(RightValue), nameof(CaseValue),
             nameof(HasLeft), nameof(HasRight), nameof(HasCase),
             nameof(LeftCharging), nameof(RightCharging), nameof(CaseCharging),
+            nameof(HasWholeDevice), nameof(WholeDeviceValue), nameof(WholeDeviceCharging),
             nameof(StatusLine), nameof(FreshnessBadge), nameof(CardOpacity),
         })
         {

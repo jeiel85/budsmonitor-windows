@@ -12,6 +12,43 @@ public interface IAdvertisementBatteryProvider
     bool TryParseAdvertisement(BleAdvertisementFrame frame, out BatteryReadResult result);
 }
 
+/// <summary>
+/// A provider that reads battery over a connection (GATT). <see cref="ProbeAsync"/>
+/// checks whether the device is supported; <see cref="ReadAsync"/> performs the read.
+/// </summary>
+public interface IBatteryProvider
+{
+    string ProviderId { get; }
+    ProviderKind Kind { get; }
+
+    Task<ProviderProbeResult> ProbeAsync(DeviceCandidate device, CancellationToken cancellationToken);
+
+    Task<BatteryReadResult> ReadAsync(DeviceCandidate device, CancellationToken cancellationToken);
+}
+
+public enum ProviderKind
+{
+    Advertisement,
+    Gatt,
+    Cache,
+}
+
+public sealed record ProviderProbeResult(
+    string ProviderId,
+    bool CanHandle,
+    BatteryReadFailureReason? FailureReason,
+    string? Message);
+
+/// <summary>A device the resolver may ask a provider to read battery for.</summary>
+public sealed record DeviceCandidate
+{
+    public required string StableDeviceKey { get; init; }
+    public required string DisplayName { get; init; }
+    public DeviceKind Kind { get; init; }
+    public string? WindowsDeviceId { get; init; }
+    public string? BluetoothAddress { get; init; }
+}
+
 public sealed record BatteryReadResult
 {
     public required string ProviderId { get; init; }
@@ -30,6 +67,13 @@ public sealed record BatteryReadResult
         ProviderId = providerId,
         Status = BatteryReadStatus.Success,
         Snapshot = snapshot,
+    };
+
+    public static BatteryReadResult Failed(string providerId, BatteryReadFailureReason reason, string message) => new()
+    {
+        ProviderId = providerId,
+        Status = BatteryReadStatus.Failed,
+        Failure = new BatteryReadFailure(reason, message),
     };
 }
 

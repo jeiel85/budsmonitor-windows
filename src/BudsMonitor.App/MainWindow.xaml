@@ -60,6 +60,16 @@
 
                                     <StackPanel Margin="0,14,0,0">
                                         <DockPanel Margin="0,4"
+                                                   Visibility="{Binding HasWholeDevice, Converter={StaticResource BoolToVisible}}">
+                                            <TextBlock Text="배터리" DockPanel.Dock="Left"
+                                                       Foreground="{DynamicResource InkMutedBrush}" />
+                                            <TextBlock Text="충전 중" DockPanel.Dock="Right" Margin="8,0,0,0"
+                                                       Foreground="{DynamicResource AccentGreenBrush}"
+                                                       Visibility="{Binding WholeDeviceCharging, Converter={StaticResource BoolToVisible}}" />
+                                            <TextBlock Text="{Binding WholeDeviceValue}" HorizontalAlignment="Right"
+                                                       FontWeight="SemiBold" />
+                                        </DockPanel>
+                                        <DockPanel Margin="0,4"
                                                    Visibility="{Binding HasLeft, Converter={StaticResource BoolToVisible}}">
                                             <TextBlock Text="왼쪽" DockPanel.Dock="Left"
                                                        Foreground="{DynamicResource InkMutedBrush}" />

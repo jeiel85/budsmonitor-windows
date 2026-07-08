@@ -9,6 +9,7 @@ using BudsMonitor.Infrastructure.Logging;
 using BudsMonitor.Infrastructure.Settings;
 using BudsMonitor.Infrastructure.Storage;
 using BudsMonitor.Providers.AirPods;
+using BudsMonitor.Providers.Gatt;
 using Serilog;
 
 namespace BudsMonitor.App;
@@ -48,6 +49,11 @@ public partial class App : System.Windows.Application
     private System.Windows.Threading.DispatcherTimer? _staleTimer;
     private DateTimeOffset _lastCacheSave = DateTimeOffset.MinValue;
 
+    private readonly PairedBleDeviceEnumerator _deviceEnumerator = new();
+    private readonly StandardGattBatteryProvider _gattProvider = new();
+    private System.Windows.Threading.DispatcherTimer? _gattTimer;
+    private bool _gattPolling;
+
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
 
@@ -80,6 +86,7 @@ public partial class App : System.Windows.Application
         InitializeScanner();
         ShowDashboard();
         StartStaleTimer();
+        StartGattPolling();
         UpdateTrayFromDashboard();
     }
 
@@ -299,6 +306,62 @@ public partial class App : System.Windows.Application
         _staleTimer.Start();
     }
 
+    private void StartGattPolling()
+    {
+        var intervalSeconds = _settings?.Monitoring.GenericGattPollingIntervalSeconds ?? 300;
+        _gattTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(Math.Max(30, intervalSeconds)),
+        };
+        _gattTimer.Tick += (_, _) => _ = PollGattAsync();
+        _gattTimer.Start();
+        _ = PollGattAsync();
+    }
+
+    private async Task PollGattAsync()
+    {
+        if (_gattPolling || _settings?.Monitoring.EnableGenericGattRefresh == false)
+        {
+            return;
+        }
+
+        _gattPolling = true;
+        try
+        {
+            var devices = await _deviceEnumerator.GetPairedDevicesAsync(CancellationToken.None);
+            var withBattery = 0;
+            foreach (var candidate in devices)
+            {
+                var result = await _gattProvider.ReadAsync(candidate, CancellationToken.None);
+                if (result is { Status: BatteryReadStatus.Success, Snapshot: not null })
+                {
+                    withBattery++;
+                    var snapshot = result.Snapshot;
+                    var now = DateTimeOffset.Now;
+                    _dashboard.Upsert(snapshot, now);
+                    UpdateTrayFromDashboard();
+                    SaveCacheThrottled(snapshot, now);
+                }
+                else if (result.Status == BatteryReadStatus.Failed)
+                {
+                    Log.Debug("GATT read failed for {Device}: {Reason}",
+                        candidate.DisplayName, result.Failure?.Reason);
+                }
+            }
+
+            Log.Information("GATT poll: {Total} paired BLE device(s), {WithBattery} with battery",
+                devices.Count, withBattery);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "GATT poll failed");
+        }
+        finally
+        {
+            _gattPolling = false;
+        }
+    }
+
     private void UpdateTrayFromDashboard()
     {
         if (_notifyIcon is null)
@@ -465,6 +528,7 @@ public partial class App : System.Windows.Application
         Log.Information("BudsMonitor shutting down");
 
         _staleTimer?.Stop();
+        _gattTimer?.Stop();
         _frameConsumerCts?.Cancel();
         _scanner?.Dispose();
 
