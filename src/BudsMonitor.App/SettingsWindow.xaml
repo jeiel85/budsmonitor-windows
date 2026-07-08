@@ -37,10 +37,11 @@
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="기기" Style="{StaticResource Title}" Margin="0,0,0,12" />
-                    <StackPanel IsEnabled="False">
-                        <CheckBox Content="숨긴 기기 표시" Margin="0,5" />
-                        <TextBlock Text="고정 / 별칭 / 숨김은 기기 카드에서 관리합니다."
-                                   Style="{StaticResource Caption}" Margin="0,6,0,0" />
+                    <StackPanel>
+                        <CheckBox x:Name="ShowHiddenCheckBox" Content="숨긴 기기 표시" Margin="0,5"
+                                  Checked="OnShowHiddenChanged" Unchecked="OnShowHiddenChanged" />
+                        <TextBlock Text="고정 / 별칭 / 숨김은 대시보드의 기기 카드를 우클릭해 관리합니다."
+                                   Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                 </StackPanel>
             </Border>

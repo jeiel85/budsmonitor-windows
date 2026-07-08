@@ -28,6 +28,7 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
     public bool HasWholeDevice { get; private set; }
     public string WholeDeviceValue { get; private set; } = "—";
     public bool WholeDeviceCharging { get; private set; }
+    public bool IsPinned { get; private set; }
     public string StatusLine { get; private set; } = "";
     public string FreshnessBadge { get; private set; } = "";
     public double CardOpacity { get; private set; } = 1.0;
@@ -35,9 +36,10 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
     public DateTimeOffset MeasuredAt { get; private set; }
     public BatteryDataSource Source { get; private set; }
 
-    public void Update(BatterySnapshot snapshot, DateTimeOffset now)
+    public void Update(BatterySnapshot snapshot, string? alias, bool isPinned, DateTimeOffset now)
     {
-        DisplayName = snapshot.DisplayName;
+        DisplayName = string.IsNullOrWhiteSpace(alias) ? snapshot.DisplayName : alias;
+        IsPinned = isPinned;
         MeasuredAt = snapshot.MeasuredAt;
         Source = snapshot.Source;
 
@@ -113,7 +115,7 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
     {
         foreach (var name in new[]
         {
-            nameof(DisplayName), nameof(LeftValue), nameof(RightValue), nameof(CaseValue),
+            nameof(DisplayName), nameof(IsPinned), nameof(LeftValue), nameof(RightValue), nameof(CaseValue),
             nameof(HasLeft), nameof(HasRight), nameof(HasCase),
             nameof(LeftCharging), nameof(RightCharging), nameof(CaseCharging),
             nameof(HasWholeDevice), nameof(WholeDeviceValue), nameof(WholeDeviceCharging),

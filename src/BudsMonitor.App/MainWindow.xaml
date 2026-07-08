@@ -46,16 +46,27 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type vm:DeviceCardViewModel}">
                             <Border Style="{StaticResource Card}" Margin="0,0,0,12" Opacity="{Binding CardOpacity}">
+                                <Border.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="고정 / 해제" Click="OnTogglePin" />
+                                        <MenuItem Header="숨기기" Click="OnToggleHide" />
+                                        <MenuItem Header="별칭 설정..." Click="OnSetAlias" />
+                                    </ContextMenu>
+                                </Border.ContextMenu>
                                 <StackPanel>
                                     <Grid>
                                         <TextBlock Text="{Binding DisplayName}" Style="{StaticResource Title}"
                                                    VerticalAlignment="Center" />
-                                        <Border HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                Background="{DynamicResource CanvasSoftBrush}"
-                                                BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
-                                                CornerRadius="10" Padding="8,3">
-                                            <TextBlock Text="{Binding FreshnessBadge}" Style="{StaticResource Eyebrow}" />
-                                        </Border>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center">
+                                            <TextBlock Text="📌" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                       Visibility="{Binding IsPinned, Converter={StaticResource BoolToVisible}}" />
+                                            <Border Background="{DynamicResource CanvasSoftBrush}"
+                                                    BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
+                                                    CornerRadius="10" Padding="8,3">
+                                                <TextBlock Text="{Binding FreshnessBadge}" Style="{StaticResource Eyebrow}" />
+                                            </Border>
+                                        </StackPanel>
                                     </Grid>
 
                                     <StackPanel Margin="0,14,0,0">

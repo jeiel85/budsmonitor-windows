@@ -33,4 +33,22 @@ public partial class MainWindow : Window
             app.ShowSettingsWindow();
         }
     }
+
+    private void OnTogglePin(object sender, RoutedEventArgs e)
+        => WithDevice(sender, (app, key) => app.TogglePinDevice(key));
+
+    private void OnToggleHide(object sender, RoutedEventArgs e)
+        => WithDevice(sender, (app, key) => app.ToggleHideDevice(key));
+
+    private void OnSetAlias(object sender, RoutedEventArgs e)
+        => WithDevice(sender, (app, key) => app.PromptDeviceAlias(key));
+
+    private static void WithDevice(object sender, Action<App, string> action)
+    {
+        if (sender is FrameworkElement { DataContext: ViewModels.DeviceCardViewModel card }
+            && System.Windows.Application.Current is App app)
+        {
+            action(app, card.StableDeviceKey);
+        }
+    }
 }

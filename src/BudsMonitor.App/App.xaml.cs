@@ -5,6 +5,7 @@ using BudsMonitor.Application;
 using BudsMonitor.Bluetooth;
 using BudsMonitor.Domain;
 using BudsMonitor.Infrastructure.Cache;
+using BudsMonitor.Infrastructure.Devices;
 using BudsMonitor.Infrastructure.Logging;
 using BudsMonitor.Infrastructure.Settings;
 using BudsMonitor.Infrastructure.Storage;
@@ -53,6 +54,8 @@ public partial class App : System.Windows.Application
     private readonly StandardGattBatteryProvider _gattProvider = new();
     private System.Windows.Threading.DispatcherTimer? _gattTimer;
     private bool _gattPolling;
+    private DeviceRegistry? _deviceRegistry;
+    private bool _showHiddenDevices;
 
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
@@ -98,6 +101,7 @@ public partial class App : System.Windows.Application
             LoggingBootstrapper.Initialize(_storagePaths);
 
             _settings = new SettingsRepository(_storagePaths).LoadOrCreate();
+            _deviceRegistry = new DeviceRegistry(new DeviceRegistryRepository(_storagePaths));
             _cacheRepository = new BatteryCacheRepository(_storagePaths);
             _batteryCache = _cacheRepository.Load();
             LoadCachedDevices();
@@ -195,7 +199,7 @@ public partial class App : System.Windows.Application
 
                 await Dispatcher.InvokeAsync(() =>
                 {
-                    _dashboard.Upsert(snapshot, now);
+                    ApplySnapshot(snapshot, now);
                     UpdateTrayFromDashboard();
                     ShowNotifications(notifications);
                 });
@@ -288,7 +292,7 @@ public partial class App : System.Windows.Application
         {
             var snapshot = CacheMapping.ToDomain(cached);
             _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
-            _dashboard.Upsert(snapshot, now);
+            ApplySnapshot(snapshot, now);
         }
     }
 
@@ -338,7 +342,7 @@ public partial class App : System.Windows.Application
                     withBattery++;
                     var snapshot = result.Snapshot;
                     var now = DateTimeOffset.Now;
-                    _dashboard.Upsert(snapshot, now);
+                    ApplySnapshot(snapshot, now);
                     UpdateTrayFromDashboard();
                     SaveCacheThrottled(snapshot, now);
                 }
@@ -371,6 +375,77 @@ public partial class App : System.Windows.Application
 
         var text = _dashboard.BuildTraySummary();
         _notifyIcon.Text = text.Length <= 63 ? text : text[..63];
+    }
+
+    private void ApplySnapshot(BatterySnapshot snapshot, DateTimeOffset now)
+    {
+        var entry = _deviceRegistry?.RecordSeen(
+            snapshot.StableDeviceKey, snapshot.DisplayName, snapshot.Source.ToString(), now);
+        _dashboard.Upsert(
+            snapshot,
+            entry?.Alias,
+            entry?.IsPinned ?? false,
+            entry?.IsHidden ?? false,
+            _showHiddenDevices,
+            now);
+    }
+
+    internal void TogglePinDevice(string key)
+    {
+        if (_deviceRegistry is null)
+        {
+            return;
+        }
+
+        var pinned = _deviceRegistry.Get(key)?.IsPinned ?? false;
+        _deviceRegistry.SetPinned(key, !pinned);
+        ReapplyDevice(key);
+    }
+
+    internal void ToggleHideDevice(string key)
+    {
+        if (_deviceRegistry is null)
+        {
+            return;
+        }
+
+        var hidden = _deviceRegistry.Get(key)?.IsHidden ?? false;
+        _deviceRegistry.SetHidden(key, !hidden);
+        ReapplyDevice(key);
+    }
+
+    internal void PromptDeviceAlias(string key)
+    {
+        if (_deviceRegistry is null)
+        {
+            return;
+        }
+
+        var current = _deviceRegistry.Get(key)?.Alias ?? string.Empty;
+        var alias = Microsoft.VisualBasic.Interaction.InputBox(
+            "별칭을 입력하세요 (비우면 원래 이름 사용)", "별칭 설정", current);
+        _deviceRegistry.SetAlias(key, alias);
+        ReapplyDevice(key);
+    }
+
+    internal void SetShowHiddenDevices(bool show)
+    {
+        _showHiddenDevices = show;
+        foreach (var snapshot in _latestSnapshots.Values.ToList())
+        {
+            ApplySnapshot(snapshot, DateTimeOffset.Now);
+        }
+
+        UpdateTrayFromDashboard();
+    }
+
+    private void ReapplyDevice(string key)
+    {
+        if (_latestSnapshots.TryGetValue(key, out var snapshot))
+        {
+            ApplySnapshot(snapshot, DateTimeOffset.Now);
+            UpdateTrayFromDashboard();
+        }
     }
 
     private void SaveCacheThrottled(BatterySnapshot snapshot, DateTimeOffset now)
@@ -529,6 +604,7 @@ public partial class App : System.Windows.Application
 
         _staleTimer?.Stop();
         _gattTimer?.Stop();
+        _deviceRegistry?.Save();
         _frameConsumerCts?.Cancel();
         _scanner?.Dispose();
 

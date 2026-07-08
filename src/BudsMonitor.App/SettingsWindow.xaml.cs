@@ -12,4 +12,12 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
     }
+
+    private void OnShowHiddenChanged(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Application.Current is App app && sender is System.Windows.Controls.CheckBox checkBox)
+        {
+            app.SetShowHiddenDevices(checkBox.IsChecked == true);
+        }
+    }
 }
