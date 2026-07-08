@@ -1,4 +1,6 @@
 using System.Windows;
+using BudsMonitor.Bluetooth;
+using BudsMonitor.Domain;
 using BudsMonitor.Infrastructure.Cache;
 using BudsMonitor.Infrastructure.Logging;
 using BudsMonitor.Infrastructure.Settings;
@@ -29,6 +31,12 @@ public partial class App : System.Windows.Application
     private StoragePaths? _storagePaths;
     private BudsMonitorSettings? _settings;
     private BatteryCacheFile? _batteryCache;
+    private BleAdvertisementScannerService? _scanner;
+    private CancellationTokenSource? _frameConsumerCts;
+    private readonly Dictionary<ulong, DateTimeOffset> _lastAppleLog = new();
+    private int _totalFramesReceived;
+
+    private const ushort AppleCompanyId = 0x004C;
 
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
@@ -58,6 +66,7 @@ public partial class App : System.Windows.Application
 
         InitializeStorageAndLogging();
         InitializeTrayIcon();
+        InitializeScanner();
         ShowDashboard();
     }
 
@@ -84,12 +93,141 @@ public partial class App : System.Windows.Application
         }
     }
 
+    private void InitializeScanner()
+    {
+        try
+        {
+            _scanner = new BleAdvertisementScannerService();
+            _scanner.StateChanged += OnScannerStateChanged;
+
+            _frameConsumerCts = new CancellationTokenSource();
+            _ = ConsumeFramesAsync(_frameConsumerCts.Token);
+
+            _ = _scanner.StartAsync();
+            Log.Information("BLE scanner started");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to start BLE scanner");
+        }
+    }
+
+    private async Task ConsumeFramesAsync(CancellationToken cancellationToken)
+    {
+        if (_scanner is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await foreach (var frame in _scanner.Frames.ReadAllAsync(cancellationToken))
+            {
+                _totalFramesReceived++;
+                if (_totalFramesReceived == 1)
+                {
+                    Log.Information("BLE scanner receiving advertisements (first frame)");
+                }
+
+                if (frame.CompanyId != AppleCompanyId)
+                {
+                    continue;
+                }
+
+                // Throttle per device so a busy room does not flood the log.
+                if (_lastAppleLog.TryGetValue(frame.BluetoothAddress, out var last)
+                    && (frame.ReceivedAt - last) < TimeSpan.FromSeconds(5))
+                {
+                    continue;
+                }
+
+                _lastAppleLog[frame.BluetoothAddress] = frame.ReceivedAt;
+                Log.Information(
+                    "Apple BLE frame addr={Address} rssi={Rssi} len={Length} data={Data}",
+                    FormatAddress(frame.BluetoothAddress),
+                    frame.RawRssi,
+                    frame.ManufacturerData.Length,
+                    Convert.ToHexString(frame.ManufacturerData));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutting down.
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "BLE frame consumer stopped unexpectedly");
+        }
+    }
+
+    private void OnScannerStateChanged(object? sender, BleScannerState state)
+    {
+        if (state == BleScannerState.Failed)
+        {
+            Log.Warning("BLE scanner failed: {Error}", _scanner?.LastError);
+        }
+        else
+        {
+            Log.Information("BLE scanner state: {State}", state);
+        }
+
+        Dispatcher.InvokeAsync(() => UpdateTrayStatus(state));
+    }
+
+    private async Task RestartScannerAsync()
+    {
+        if (_scanner is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Log.Information("Restarting BLE scanner from tray");
+            await _scanner.RestartAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Failed to restart BLE scanner");
+        }
+    }
+
+    private void UpdateTrayStatus(BleScannerState state)
+    {
+        if (_notifyIcon is null)
+        {
+            return;
+        }
+
+        _notifyIcon.Text = state switch
+        {
+            BleScannerState.Running => "BudsMonitor · 스캔 중",
+            BleScannerState.Failed => "BudsMonitor · 스캐너 오류",
+            BleScannerState.Stopped => "BudsMonitor · 스캐너 정지",
+            _ => "BudsMonitor",
+        };
+    }
+
+    private string FormatAddress(ulong address)
+    {
+        var bytes = new byte[6];
+        for (var i = 0; i < 6; i++)
+        {
+            bytes[5 - i] = (byte)(address >> (i * 8));
+        }
+
+        var mask = _settings?.Privacy.MaskBluetoothAddressesInLogs ?? true;
+        return mask
+            ? $"{bytes[0]:X2}:{bytes[1]:X2}:{bytes[2]:X2}:**:**:**"
+            : string.Join(":", bytes.Select(b => b.ToString("X2")));
+    }
+
     private void InitializeTrayIcon()
     {
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("대시보드 열기", image: null, (_, _) => ShowDashboard());
         // These surfaces are wired up in later goals (scanner / diagnostics).
-        menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("지금 새로 고침") { Enabled = false });
+        menu.Items.Add("지금 새로 고침", image: null, async (_, _) => await RestartScannerAsync());
         menu.Items.Add(new System.Windows.Forms.ToolStripMenuItem("진단") { Enabled = false });
         menu.Items.Add("설정", image: null, (_, _) => ShowSettingsWindow());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
@@ -154,6 +292,9 @@ public partial class App : System.Windows.Application
     {
         IsShuttingDown = true;
         Log.Information("BudsMonitor shutting down");
+
+        _frameConsumerCts?.Cancel();
+        _scanner?.Dispose();
 
         if (_notifyIcon is not null)
         {
