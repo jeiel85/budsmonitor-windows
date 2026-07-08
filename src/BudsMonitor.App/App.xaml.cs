@@ -1,6 +1,7 @@
 using System.Windows;
 using Microsoft.Win32;
 using BudsMonitor.App.ViewModels;
+using BudsMonitor.Application;
 using BudsMonitor.Bluetooth;
 using BudsMonitor.Domain;
 using BudsMonitor.Infrastructure.Cache;
@@ -41,6 +42,7 @@ public partial class App : System.Windows.Application
 
     private readonly DashboardViewModel _dashboard = new();
     private readonly AirPodsBleAdvertisementProvider _airPodsProvider = new();
+    private readonly NotificationRuleService _notificationService = new();
     private readonly Dictionary<string, BatterySnapshot> _latestSnapshots = new();
     private BatteryCacheRepository? _cacheRepository;
     private System.Windows.Threading.DispatcherTimer? _staleTimer;
@@ -182,11 +184,13 @@ public partial class App : System.Windows.Application
 
                 var snapshot = result.Snapshot;
                 var now = DateTimeOffset.Now;
+                var notifications = _notificationService.Evaluate(snapshot, BuildNotificationOptions(), now);
 
                 await Dispatcher.InvokeAsync(() =>
                 {
                     _dashboard.Upsert(snapshot, now);
                     UpdateTrayFromDashboard();
+                    ShowNotifications(notifications);
                 });
 
                 SaveCacheThrottled(snapshot, now);
@@ -350,6 +354,43 @@ public partial class App : System.Windows.Application
     {
         var component = snapshot.Components.FirstOrDefault(c => c.Type == type);
         return component is null ? "—" : $"{component.Percentage}%";
+    }
+
+    private NotificationRuleOptions BuildNotificationOptions()
+    {
+        var notifications = _settings?.Notifications ?? new NotificationSettings();
+        var monitoring = _settings?.Monitoring ?? new MonitoringSettings();
+
+        return new NotificationRuleOptions
+        {
+            Enabled = notifications.Enabled,
+            EarbudThresholdPercent = notifications.EarbudLowBatteryThreshold,
+            CaseThresholdPercent = notifications.CaseLowBatteryThreshold,
+            SuppressWindow = TimeSpan.FromMinutes(notifications.SuppressRepeatedMinutes),
+            NotifyFromStaleData = notifications.NotifyFromStaleData,
+            StaleAfter = TimeSpan.FromSeconds(monitoring.StaleAfterSeconds),
+            QuietHoursEnabled = notifications.QuietHoursEnabled,
+            QuietHoursStart = ParseTime(notifications.QuietHoursStart, new TimeOnly(22, 0)),
+            QuietHoursEnd = ParseTime(notifications.QuietHoursEnd, new TimeOnly(7, 0)),
+        };
+    }
+
+    private static TimeOnly ParseTime(string value, TimeOnly fallback)
+        => TimeOnly.TryParse(value, out var parsed) ? parsed : fallback;
+
+    private void ShowNotifications(IReadOnlyList<NotificationRequest> notifications)
+    {
+        if (_notifyIcon is null || notifications.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var notification in notifications)
+        {
+            _notifyIcon.ShowBalloonTip(5000, notification.Title, notification.Body,
+                System.Windows.Forms.ToolTipIcon.Warning);
+            Log.Information("Notified: {Title} — {Body}", notification.Title, notification.Body);
+        }
     }
 
     private void InitializeTrayIcon()
