@@ -65,6 +65,16 @@ public partial class App : System.Windows.Application
     private readonly LinkedList<DiagnosticsAdvertisementSample> _recentAdvertisements = new();
     private IReadOnlyList<DiagnosticsProviderAttempt> _lastGattAttempts = [];
 
+    // Self-repair (GOAL 10): recover the scanner/providers across sleep, resume and
+    // Bluetooth toggles, and back off polling/restarts after repeated failures.
+    private BluetoothRadioWatcher? _radioWatcher;
+    private readonly BackoffPolicy _gattBackoff = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(15));
+    private readonly BackoffPolicy _scannerBackoff = new(TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(2));
+    private int _gattFailureStreak;
+    private int _scannerFailureStreak;
+    private int _baseGattIntervalSeconds = 300;
+    private bool _scannerRestartScheduled;
+
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
 
@@ -98,6 +108,7 @@ public partial class App : System.Windows.Application
         ShowDashboard();
         StartStaleTimer();
         StartGattPolling();
+        InitializeSelfRepair();
         UpdateTrayFromDashboard();
     }
 
@@ -233,9 +244,15 @@ public partial class App : System.Windows.Application
         if (state == BleScannerState.Failed)
         {
             Log.Warning("BLE scanner failed: {Error}", _scanner?.LastError);
+            ScheduleScannerRestart();
         }
         else
         {
+            if (state == BleScannerState.Running)
+            {
+                _scannerFailureStreak = 0;
+            }
+
             Log.Information("BLE scanner state: {State}", state);
         }
 
@@ -322,10 +339,10 @@ public partial class App : System.Windows.Application
 
     private void StartGattPolling()
     {
-        var intervalSeconds = _settings?.Monitoring.GenericGattPollingIntervalSeconds ?? 300;
+        _baseGattIntervalSeconds = Math.Max(30, _settings?.Monitoring.GenericGattPollingIntervalSeconds ?? 300);
         _gattTimer = new System.Windows.Threading.DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(Math.Max(30, intervalSeconds)),
+            Interval = TimeSpan.FromSeconds(_baseGattIntervalSeconds),
         };
         _gattTimer.Tick += (_, _) => _ = PollGattAsync();
         _gattTimer.Start();
@@ -378,10 +395,20 @@ public partial class App : System.Windows.Application
             _lastGattAttempts = attempts;
             Log.Information("GATT poll: {Total} paired BLE device(s), {WithBattery} with battery",
                 devices.Count, withBattery);
+
+            if (_gattFailureStreak != 0)
+            {
+                _gattFailureStreak = 0;
+                ApplyGattInterval(0);
+                Log.Information("GATT poll recovered; interval reset to {Seconds}s", _baseGattIntervalSeconds);
+            }
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "GATT poll failed");
+            _gattFailureStreak++;
+            ApplyGattInterval(_gattFailureStreak);
+            Log.Warning(ex, "GATT poll failed (streak {Streak}, next interval {Seconds}s)",
+                _gattFailureStreak, (int)(_gattTimer?.Interval.TotalSeconds ?? _baseGattIntervalSeconds));
         }
         finally
         {
@@ -631,6 +658,117 @@ public partial class App : System.Windows.Application
     private static string GetAppVersion()
         => System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
 
+    // ----- Sleep/resume + self-repair (GOAL 10) --------------------------------
+
+    private void InitializeSelfRepair()
+    {
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+
+        _radioWatcher = new BluetoothRadioWatcher();
+        _radioWatcher.StateChanged += OnRadioStateChanged;
+        _ = _radioWatcher.StartAsync();
+        Log.Information("Self-repair initialized (power + Bluetooth radio watch)");
+    }
+
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        switch (e.Mode)
+        {
+            case PowerModes.Resume:
+                Log.Information("System resume detected; recovering scanner and providers");
+                Dispatcher.InvokeAsync(() => _ = RecoverAsync("resume"));
+                break;
+            case PowerModes.Suspend:
+                Log.Information("System suspend detected");
+                break;
+        }
+    }
+
+    private void OnRadioStateChanged(object? sender, bool isOn)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            Log.Information("Bluetooth radio turned {State}", isOn ? "on" : "off");
+            if (isOn)
+            {
+                _ = RecoverAsync("bluetooth-on");
+            }
+            else
+            {
+                UpdateTrayStatus(BleScannerState.Stopped);
+            }
+        });
+    }
+
+    /// <summary>Resets failure backoff and restarts the scanner + a GATT poll after a disruption.</summary>
+    private async Task RecoverAsync(string reason)
+    {
+        ResetGattInterval();
+        _scannerFailureStreak = 0;
+
+        try
+        {
+            await RestartScannerAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Scanner restart during {Reason} recovery failed", reason);
+        }
+
+        _ = PollGattAsync();
+        Log.Information("Recovery ({Reason}) complete", reason);
+    }
+
+    /// <summary>Schedules a single backed-off scanner restart after a failure (no overlap).</summary>
+    private void ScheduleScannerRestart()
+    {
+        if (_scannerRestartScheduled)
+        {
+            return;
+        }
+
+        _scannerRestartScheduled = true;
+        _scannerFailureStreak++;
+        var delay = _scannerBackoff.DelayFor(_scannerFailureStreak);
+        Log.Information("Scheduling scanner restart in {Delay}s (failure streak {Streak})",
+            (int)delay.TotalSeconds, _scannerFailureStreak);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay);
+                await RestartScannerAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Scheduled scanner restart failed");
+            }
+            finally
+            {
+                _scannerRestartScheduled = false;
+            }
+        });
+    }
+
+    private void ApplyGattInterval(int failureStreak)
+    {
+        if (_gattTimer is null)
+        {
+            return;
+        }
+
+        var backoff = _gattBackoff.DelayFor(failureStreak);
+        var seconds = _baseGattIntervalSeconds + (int)backoff.TotalSeconds;
+        _gattTimer.Interval = TimeSpan.FromSeconds(seconds);
+    }
+
+    private void ResetGattInterval()
+    {
+        _gattFailureStreak = 0;
+        ApplyGattInterval(0);
+    }
+
     private void SaveCacheThrottled(BatterySnapshot snapshot, DateTimeOffset now)
     {
         _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
@@ -803,6 +941,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        _radioWatcher?.Dispose();
         _showRequestWait?.Unregister(waitObject: null);
         _notifyIcon?.Dispose();
         _showRequestEvent?.Dispose();
