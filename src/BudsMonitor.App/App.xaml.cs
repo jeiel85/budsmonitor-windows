@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Windows;
 using Microsoft.Win32;
@@ -50,7 +51,9 @@ public partial class App : System.Windows.Application
     private readonly GalaxyBudsAdvertisementProvider _galaxyBudsProvider = new();
     private readonly GalaxyBudsClassifier _galaxyBudsClassifier = new();
     private readonly NotificationRuleService _notificationService = new();
-    private readonly Dictionary<string, BatterySnapshot> _latestSnapshots = new();
+    // Written from both the BLE consumer thread (cache save) and the UI thread
+    // (GATT poll, diagnostics, show-hidden), so it must be concurrency-safe.
+    private readonly ConcurrentDictionary<string, BatterySnapshot> _latestSnapshots = new();
     private BatteryCacheRepository? _cacheRepository;
     private System.Windows.Threading.DispatcherTimer? _staleTimer;
     private DateTimeOffset _lastCacheSave = DateTimeOffset.MinValue;
@@ -63,9 +66,12 @@ public partial class App : System.Windows.Application
     private bool _showHiddenDevices;
 
     private DiagnosticsWindow? _diagnosticsWindow;
-    private const int MaxRecentAdvertisements = 40;
+    // Keep recent advertisements per company id so a noisy environment cannot evict the
+    // interesting frames (Apple/Samsung/etc.) before a diagnostics export. Bounded overall.
+    private const int MaxSamplesPerCompany = 8;
+    private const int MaxAdvertisementCompanies = 32;
     private readonly object _adSamplesLock = new();
-    private readonly LinkedList<DiagnosticsAdvertisementSample> _recentAdvertisements = new();
+    private readonly Dictionary<ushort, LinkedList<DiagnosticsAdvertisementSample>> _recentAdvertisements = new();
     private IReadOnlyList<DiagnosticsProviderAttempt> _lastGattAttempts = [];
 
     // Self-repair (GOAL 10): recover the scanner/providers across sleep, resume and
@@ -73,6 +79,7 @@ public partial class App : System.Windows.Application
     private BluetoothRadioWatcher? _radioWatcher;
     private readonly BackoffPolicy _gattBackoff = new(TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(15));
     private readonly BackoffPolicy _scannerBackoff = new(TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(2));
+    private const int MaxScannerRestartAttempts = 8;
     private int _gattFailureStreak;
     private int _scannerFailureStreak;
     private int _baseGattIntervalSeconds = 300;
@@ -566,10 +573,25 @@ public partial class App : System.Windows.Application
 
         lock (_adSamplesLock)
         {
-            _recentAdvertisements.AddLast(sample);
-            while (_recentAdvertisements.Count > MaxRecentAdvertisements)
+            if (!_recentAdvertisements.TryGetValue(frame.CompanyId, out var samples))
             {
-                _recentAdvertisements.RemoveFirst();
+                if (_recentAdvertisements.Count >= MaxAdvertisementCompanies)
+                {
+                    // Evict the company whose most recent sample is oldest.
+                    var stalest = _recentAdvertisements
+                        .OrderBy(kv => kv.Value.Last?.Value.ReceivedAt ?? DateTimeOffset.MinValue)
+                        .First().Key;
+                    _recentAdvertisements.Remove(stalest);
+                }
+
+                samples = new LinkedList<DiagnosticsAdvertisementSample>();
+                _recentAdvertisements[frame.CompanyId] = samples;
+            }
+
+            samples.AddLast(sample);
+            while (samples.Count > MaxSamplesPerCompany)
+            {
+                samples.RemoveFirst();
             }
         }
     }
@@ -579,7 +601,10 @@ public partial class App : System.Windows.Application
         List<DiagnosticsAdvertisementSample> advertisements;
         lock (_adSamplesLock)
         {
-            advertisements = _recentAdvertisements.ToList();
+            advertisements = _recentAdvertisements.Values
+                .SelectMany(samples => samples)
+                .OrderByDescending(sample => sample.ReceivedAt)
+                .ToList();
         }
 
         var attempts = new List<DiagnosticsProviderAttempt>(_lastGattAttempts);
@@ -774,6 +799,14 @@ public partial class App : System.Windows.Application
     {
         if (_scannerRestartScheduled)
         {
+            return;
+        }
+
+        if (_scannerFailureStreak >= MaxScannerRestartAttempts)
+        {
+            Log.Warning("BLE scanner failed {Count} times; pausing auto-restart until resume, " +
+                "Bluetooth on, or manual refresh", _scannerFailureStreak);
+            Dispatcher.InvokeAsync(() => UpdateTrayStatus(BleScannerState.Failed));
             return;
         }
 
