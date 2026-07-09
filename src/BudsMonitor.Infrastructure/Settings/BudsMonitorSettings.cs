@@ -38,6 +38,12 @@ public sealed record MonitoringSettings
     public int GenericGattPollingIntervalSeconds { get; init; } = 300;
     public int StaleAfterSeconds { get; init; } = 120;
     public int LastKnownVisibleForHours { get; init; } = 24;
+
+    /// <summary>Show only earbud families paired to this PC (filters out nearby strangers' AirPods).</summary>
+    public bool ShowPairedDevicesOnly { get; init; } = true;
+
+    /// <summary>Drop a device card if it hasn't been seen for this long (0 disables).</summary>
+    public int HideStaleAfterMinutes { get; init; } = 60;
 }
 
 public sealed record NotificationSettings

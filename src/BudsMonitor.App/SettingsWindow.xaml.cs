@@ -20,6 +20,7 @@ public partial class SettingsWindow : Window
             VersionText.Text = app.GetCurrentVersionString();
             CheckUpdatesCheckBox.IsChecked = app.IsUpdateCheckOnStartup;
             ThemeCombo.SelectedIndex = app.GetThemeIndex();
+            PairedOnlyCheckBox.IsChecked = app.IsShowPairedDevicesOnly;
         }
 
         _initialized = true;
@@ -101,6 +102,15 @@ public partial class SettingsWindow : Window
         if (System.Windows.Application.Current is App app && sender is System.Windows.Controls.CheckBox checkBox)
         {
             app.SetShowHiddenDevices(checkBox.IsChecked == true);
+        }
+    }
+
+    private void OnPairedOnlyChanged(object sender, RoutedEventArgs e)
+    {
+        if (_initialized && System.Windows.Application.Current is App app
+            && sender is System.Windows.Controls.CheckBox checkBox)
+        {
+            app.SetShowPairedDevicesOnly(checkBox.IsChecked == true);
         }
     }
 

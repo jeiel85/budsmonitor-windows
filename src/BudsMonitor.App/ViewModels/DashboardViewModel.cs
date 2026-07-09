@@ -58,6 +58,39 @@ public sealed class DashboardViewModel : INotifyPropertyChanged
         }
     }
 
+    public void Clear()
+    {
+        if (Devices.Count == 0)
+        {
+            return;
+        }
+
+        Devices.Clear();
+        Notify(nameof(HasDevices));
+    }
+
+    /// <summary>Removes non-pinned cards older than <paramref name="maxAge"/>; returns their device keys.</summary>
+    public IReadOnlyList<string> RemoveStale(DateTimeOffset now, TimeSpan maxAge)
+    {
+        var removed = new List<string>();
+        for (var i = Devices.Count - 1; i >= 0; i--)
+        {
+            var device = Devices[i];
+            if (!device.IsPinned && now - device.MeasuredAt > maxAge)
+            {
+                removed.Add(device.StableDeviceKey);
+                Devices.RemoveAt(i);
+            }
+        }
+
+        if (removed.Count > 0)
+        {
+            Notify(nameof(HasDevices));
+        }
+
+        return removed;
+    }
+
     private void SortPinnedFirst()
     {
         var sorted = Devices

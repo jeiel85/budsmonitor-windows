@@ -94,6 +94,7 @@ public sealed class AirPodsBleAdvertisementProvider : IAdvertisementBatteryProvi
             MeasuredAt = airpods.ReceivedAt,
             ExpectedFreshness = TimeSpan.FromSeconds(30),
             ModelName = airpods.ModelName,
+            Rssi = frame.RawRssi,
         };
     }
 

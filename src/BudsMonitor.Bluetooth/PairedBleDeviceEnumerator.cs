@@ -32,6 +32,20 @@ public sealed class PairedBleDeviceEnumerator
         return candidates;
     }
 
+    /// <summary>
+    /// Names of devices paired over Classic Bluetooth (e.g. "용은의 AirPods", "용은의 AirPods Pro").
+    /// AirPods pair as Classic audio, so this is how we learn which earbud families are "yours".
+    /// </summary>
+    public async Task<IReadOnlyList<string>> GetPairedClassicNamesAsync(CancellationToken cancellationToken)
+    {
+        var selector = BluetoothDevice.GetDeviceSelectorFromPairingState(true);
+        var devices = await DeviceInformation.FindAllAsync(selector).AsTask(cancellationToken);
+        return devices
+            .Select(info => info.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToList();
+    }
+
     private static string BuildStableKey(string deviceId)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(deviceId));

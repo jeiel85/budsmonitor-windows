@@ -4,6 +4,7 @@ using System.Windows;
 using Microsoft.Win32;
 using BudsMonitor.App.ViewModels;
 using BudsMonitor.Application;
+using BudsMonitor.Application.Devices;
 using BudsMonitor.Application.Updates;
 using BudsMonitor.Bluetooth;
 using BudsMonitor.Diagnostics;
@@ -60,6 +61,9 @@ public partial class App : System.Windows.Application
     private DateTimeOffset _lastCacheSave = DateTimeOffset.MinValue;
 
     private readonly PairedBleDeviceEnumerator _deviceEnumerator = new();
+    // Collapses rotating AirPods advertisements to one card per family, prefers the nearest
+    // (strongest RSSI), and filters to the earbud families paired to this PC.
+    private readonly DeviceListResolver _resolver = new();
     private readonly StandardGattBatteryProvider _gattProvider = new();
     private System.Windows.Threading.DispatcherTimer? _gattTimer;
     private bool _gattPolling;
@@ -127,6 +131,7 @@ public partial class App : System.Windows.Application
         ShowDashboard();
         StartStaleTimer();
         StartGattPolling();
+        InitializeDeviceFilter();
         InitializeSelfRepair();
         UpdateTrayFromDashboard();
         StartupUpdateCheck();
@@ -143,7 +148,6 @@ public partial class App : System.Windows.Application
             _deviceRegistry = new DeviceRegistry(new DeviceRegistryRepository(_storagePaths));
             _cacheRepository = new BatteryCacheRepository(_storagePaths);
             _batteryCache = _cacheRepository.Load();
-            LoadCachedDevices();
 
             Log.Information(
                 "BudsMonitor started. theme={Theme}, minimizeToTray={MinimizeToTray}, cachedSnapshots={Count}",
@@ -253,16 +257,21 @@ public partial class App : System.Windows.Application
 
                 var snapshot = result.Snapshot;
                 var now = DateTimeOffset.Now;
-                var notifications = _notificationService.Evaluate(snapshot, BuildNotificationOptions(), now);
+                var options = BuildNotificationOptions();
 
                 await Dispatcher.InvokeAsync(() =>
                 {
-                    ApplySnapshot(snapshot, now);
+                    // Only notify for a reading we actually show (mine) — not a filtered-out
+                    // stranger's AirPods, and not a nearer same-family reading we dropped.
+                    if (ApplySnapshot(snapshot, now))
+                    {
+                        ShowNotifications(_notificationService.Evaluate(snapshot, options, now));
+                    }
+
                     UpdateTrayFromDashboard();
-                    ShowNotifications(notifications);
                 });
 
-                SaveCacheThrottled(snapshot, now);
+                SaveCacheThrottled(now);
                 LogSnapshotThrottled(snapshot, frame);
             }
         }
@@ -354,10 +363,62 @@ public partial class App : System.Windows.Application
         var now = DateTimeOffset.Now;
         foreach (var cached in _batteryCache.Snapshots)
         {
-            var snapshot = CacheMapping.ToDomain(cached);
-            _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
-            ApplySnapshot(snapshot, now);
+            ApplySnapshot(CacheMapping.ToDomain(cached), now);
         }
+    }
+
+    /// <summary>Learns which earbud families are paired to this PC, then loads the last-known cache.</summary>
+    private void InitializeDeviceFilter()
+    {
+        _resolver.ShowPairedOnly = _settings?.Monitoring.ShowPairedDevicesOnly ?? true;
+        _ = Task.Run(async () =>
+        {
+            await RefreshPairedFamiliesAsync();
+            await Dispatcher.InvokeAsync(LoadCachedDevices);
+        });
+    }
+
+    private async Task RefreshPairedFamiliesAsync()
+    {
+        try
+        {
+            var names = await _deviceEnumerator.GetPairedClassicNamesAsync(CancellationToken.None);
+            var families = names
+                .Select(EarbudFamily.Of)
+                .Where(family => family is not null)
+                .Select(family => family!)
+                .ToHashSet();
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                _resolver.PairedFamilies = families;
+                Log.Information("Paired earbud families: {Families}",
+                    families.Count == 0 ? "(none)" : string.Join(", ", families));
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Paired family enumeration failed");
+        }
+    }
+
+    internal bool IsShowPairedDevicesOnly => _settings?.Monitoring.ShowPairedDevicesOnly ?? true;
+
+    internal void SetShowPairedDevicesOnly(bool enabled)
+    {
+        _resolver.ShowPairedOnly = enabled;
+        UpdateAndSaveSettings(s => s with { Monitoring = s.Monitoring with { ShowPairedDevicesOnly = enabled } });
+        ResetAndRepopulate();
+    }
+
+    /// <summary>Clears the dashboard and re-derives it through the resolver (after a filter change).</summary>
+    private void ResetAndRepopulate()
+    {
+        _dashboard.Clear();
+        _latestSnapshots.Clear();
+        _resolver.Reset();
+        LoadCachedDevices();
+        UpdateTrayFromDashboard();
     }
 
     private void StartStaleTimer()
@@ -368,7 +429,17 @@ public partial class App : System.Windows.Application
         };
         _staleTimer.Tick += (_, _) =>
         {
-            _dashboard.RefreshFreshness(DateTimeOffset.Now);
+            var now = DateTimeOffset.Now;
+            var hideAfter = _settings?.Monitoring.HideStaleAfterMinutes ?? 60;
+            if (hideAfter > 0)
+            {
+                foreach (var removedKey in _dashboard.RemoveStale(now, TimeSpan.FromMinutes(hideAfter)))
+                {
+                    _latestSnapshots.TryRemove(removedKey, out _);
+                }
+            }
+
+            _dashboard.RefreshFreshness(now);
             UpdateTrayFromDashboard();
         };
         _staleTimer.Start();
@@ -420,7 +491,7 @@ public partial class App : System.Windows.Application
                     var now = DateTimeOffset.Now;
                     ApplySnapshot(snapshot, now);
                     UpdateTrayFromDashboard();
-                    SaveCacheThrottled(snapshot, now);
+                    SaveCacheThrottled(now);
                 }
                 else
                 {
@@ -469,7 +540,27 @@ public partial class App : System.Windows.Application
         _notifyIcon.Text = text.Length <= 63 ? text : text[..63];
     }
 
-    private void ApplySnapshot(BatterySnapshot snapshot, DateTimeOffset now)
+    /// <summary>
+    /// Runs a raw reading through the resolver (family aggregation + nearest-first + paired
+    /// filter), then stores and shows the resulting card. Dropped readings (filtered out, or a
+    /// nearer same-family reading currently holds the card) are ignored.
+    /// </summary>
+    private bool ApplySnapshot(BatterySnapshot snapshot, DateTimeOffset now)
+    {
+        var key = _resolver.Resolve(snapshot, now);
+        if (key is null)
+        {
+            return false;
+        }
+
+        var display = key == snapshot.StableDeviceKey ? snapshot : snapshot with { StableDeviceKey = key };
+        _latestSnapshots[key] = display;
+        ApplyToDashboard(display, now);
+        return true;
+    }
+
+    /// <summary>Records an already-resolved snapshot and upserts its dashboard card (no re-resolve).</summary>
+    private void ApplyToDashboard(BatterySnapshot snapshot, DateTimeOffset now)
     {
         var entry = _deviceRegistry?.RecordSeen(
             snapshot.StableDeviceKey, snapshot.DisplayName, snapshot.Source.ToString(), now);
@@ -498,7 +589,6 @@ public partial class App : System.Windows.Application
         Dispatcher.InvokeAsync(() =>
         {
             ApplySnapshot(snapshot, now);
-            _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
             UpdateTrayFromDashboard();
         });
     }
@@ -519,7 +609,6 @@ public partial class App : System.Windows.Application
         var snapshot = GalaxyBudsAdvertisementProvider.CreateLimitedSupportSnapshot(
             candidate.StableDeviceKey, match.DisplayName, match.DisplayName, now);
         ApplySnapshot(snapshot, now);
-        _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
         UpdateTrayFromDashboard();
     }
 
@@ -566,7 +655,7 @@ public partial class App : System.Windows.Application
         _showHiddenDevices = show;
         foreach (var snapshot in _latestSnapshots.Values.ToList())
         {
-            ApplySnapshot(snapshot, DateTimeOffset.Now);
+            ApplyToDashboard(snapshot, DateTimeOffset.Now);
         }
 
         UpdateTrayFromDashboard();
@@ -576,7 +665,7 @@ public partial class App : System.Windows.Application
     {
         if (_latestSnapshots.TryGetValue(key, out var snapshot))
         {
-            ApplySnapshot(snapshot, DateTimeOffset.Now);
+            ApplyToDashboard(snapshot, DateTimeOffset.Now);
             UpdateTrayFromDashboard();
         }
     }
@@ -806,6 +895,7 @@ public partial class App : System.Windows.Application
     {
         ResetGattInterval();
         _scannerFailureStreak = 0;
+        _ = RefreshPairedFamiliesAsync();
 
         try
         {
@@ -1142,9 +1232,8 @@ finally {
 }
 ";
 
-    private void SaveCacheThrottled(BatterySnapshot snapshot, DateTimeOffset now)
+    private void SaveCacheThrottled(DateTimeOffset now)
     {
-        _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
         if (now - _lastCacheSave < TimeSpan.FromSeconds(30))
         {
             return;

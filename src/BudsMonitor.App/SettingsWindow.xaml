@@ -38,6 +38,10 @@
                 <StackPanel>
                     <TextBlock Text="기기" Style="{StaticResource Title}" Margin="0,0,0,12" />
                     <StackPanel>
+                        <CheckBox x:Name="PairedOnlyCheckBox" Content="페어링한 내 기기만 표시" Margin="0,5"
+                                  Checked="OnPairedOnlyChanged" Unchecked="OnPairedOnlyChanged" />
+                        <TextBlock Text="이 PC에 페어링된 이어버드 계열만, 가장 가까운 것으로 표시해 주변 다른 사람 기기를 걸러냅니다."
+                                   Style="{StaticResource Caption}" Margin="0,4,0,10" TextWrapping="Wrap" />
                         <CheckBox x:Name="ShowHiddenCheckBox" Content="숨긴 기기 표시" Margin="0,5"
                                   Checked="OnShowHiddenChanged" Unchecked="OnShowHiddenChanged" />
                         <TextBlock Text="고정 / 별칭 / 숨김은 대시보드의 기기 카드를 우클릭해 관리합니다."

@@ -17,6 +17,10 @@ public sealed record BatterySnapshot
     public TimeSpan? ExpectedFreshness { get; init; }
     public string? ModelName { get; init; }
     public string? ProviderDiagnosticCode { get; init; }
+
+    /// <summary>Advertisement signal strength (dBm) when available; used to prefer the nearest
+    /// device among same-model earbuds. Null for connection/cache-based readings.</summary>
+    public int? Rssi { get; init; }
 }
 
 public sealed record BatteryComponent
