@@ -177,6 +177,22 @@ public partial class App : System.Windows.Application
         merged.Add(new ResourceDictionary { Source = source });
     }
 
+    /// <summary>Combo index for the current theme setting: 0 system, 1 light, 2 dark.</summary>
+    internal int GetThemeIndex() => _settings?.App.Theme?.ToLowerInvariant() switch
+    {
+        "light" => 1,
+        "dark" => 2,
+        _ => 0,
+    };
+
+    /// <summary>Applies and persists the theme chosen from the settings combo.</summary>
+    internal void SetTheme(int index)
+    {
+        var theme = index switch { 1 => "light", 2 => "dark", _ => "system" };
+        ApplyTheme(theme);
+        UpdateAndSaveSettings(s => s with { App = s.App with { Theme = theme } });
+    }
+
     private static bool IsWindowsDarkTheme()
     {
         try

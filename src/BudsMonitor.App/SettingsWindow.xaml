@@ -22,14 +22,14 @@
                     <StackPanel IsEnabled="False">
                         <CheckBox Content="Windows 시작 시 실행" Margin="0,5" />
                         <CheckBox Content="트레이로 최소화" IsChecked="True" Margin="0,5" />
-                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                            <TextBlock Text="테마" VerticalAlignment="Center" Width="80" />
-                            <ComboBox Width="160" SelectedIndex="0">
-                                <ComboBoxItem Content="시스템" />
-                                <ComboBoxItem Content="밝게" />
-                                <ComboBoxItem Content="어둡게" />
-                            </ComboBox>
-                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBlock Text="테마" VerticalAlignment="Center" Width="80" />
+                        <ComboBox x:Name="ThemeCombo" Width="160" SelectionChanged="OnThemeChanged">
+                            <ComboBoxItem Content="시스템" />
+                            <ComboBoxItem Content="밝게" />
+                            <ComboBoxItem Content="어둡게" />
+                        </ComboBox>
                     </StackPanel>
                 </StackPanel>
             </Border>

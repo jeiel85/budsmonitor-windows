@@ -18,9 +18,18 @@ public partial class SettingsWindow : Window
         {
             VersionText.Text = app.GetCurrentVersionString();
             CheckUpdatesCheckBox.IsChecked = app.IsUpdateCheckOnStartup;
+            ThemeCombo.SelectedIndex = app.GetThemeIndex();
         }
 
         _initialized = true;
+    }
+
+    private void OnThemeChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_initialized && System.Windows.Application.Current is App app && ThemeCombo.SelectedIndex >= 0)
+        {
+            app.SetTheme(ThemeCombo.SelectedIndex);
+        }
     }
 
     private void OnUpdateCheckToggled(object sender, RoutedEventArgs e)
