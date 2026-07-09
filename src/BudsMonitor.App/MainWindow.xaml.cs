@@ -16,11 +16,19 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        if (System.Windows.Application.Current is App { IsShuttingDown: false })
+        if (System.Windows.Application.Current is App { IsShuttingDown: false } app)
         {
-            // Close button minimizes to tray; the app keeps monitoring in the background.
-            e.Cancel = true;
-            Hide();
+            if (app.MinimizeToTrayOnClose)
+            {
+                // Close button minimizes to tray; the app keeps monitoring in the background.
+                e.Cancel = true;
+                Hide();
+            }
+            else
+            {
+                // "트레이로 최소화" off → closing the dashboard exits the app.
+                app.QuitApplication();
+            }
         }
 
         base.OnClosing(e);

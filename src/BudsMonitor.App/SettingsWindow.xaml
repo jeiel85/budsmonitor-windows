@@ -13,15 +13,17 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="24">
             <TextBlock Text="설정" Style="{StaticResource Heading2}" />
-            <TextBlock Text="아래 항목은 이후 구현 단계에서 활성화됩니다."
+            <TextBlock Text="테마·시작·알림·개인정보 옵션을 관리합니다."
                        Style="{StaticResource Caption}" Margin="0,4,0,20" TextWrapping="Wrap" />
 
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="일반" Style="{StaticResource Title}" Margin="0,0,0,12" />
-                    <StackPanel IsEnabled="False">
-                        <CheckBox Content="Windows 시작 시 실행" Margin="0,5" />
-                        <CheckBox Content="트레이로 최소화" IsChecked="True" Margin="0,5" />
+                    <StackPanel>
+                        <CheckBox x:Name="StartWithWindowsCheckBox" Content="Windows 시작 시 실행" Margin="0,5"
+                                  Checked="OnStartWithWindowsChanged" Unchecked="OnStartWithWindowsChanged" />
+                        <CheckBox x:Name="MinimizeToTrayCheckBox" Content="트레이로 최소화" Margin="0,5"
+                                  Checked="OnMinimizeToTrayChanged" Unchecked="OnMinimizeToTrayChanged" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <TextBlock Text="테마" VerticalAlignment="Center" Width="80" />
@@ -53,20 +55,38 @@
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="알림" Style="{StaticResource Title}" Margin="0,0,0,12" />
-                    <StackPanel IsEnabled="False">
-                        <CheckBox Content="배터리 부족 알림 사용" IsChecked="True" Margin="0,5" />
+                    <StackPanel>
+                        <CheckBox x:Name="NotifyEnabledCheckBox" Content="배터리 부족 알림 사용" Margin="0,5"
+                                  Checked="OnNotifyEnabledChanged" Unchecked="OnNotifyEnabledChanged" />
                         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                             <TextBlock Text="이어버드 임계값" VerticalAlignment="Center" Width="120" />
-                            <TextBox Text="20" Width="60" Style="{StaticResource AppTextBox}" />
+                            <TextBox x:Name="EarbudThresholdBox" Width="60" Style="{StaticResource AppTextBox}"
+                                     LostFocus="OnThresholdChanged" />
                             <TextBlock Text="%" VerticalAlignment="Center" Margin="6,0,0,0" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                             <TextBlock Text="케이스 임계값" VerticalAlignment="Center" Width="120" />
-                            <TextBox Text="20" Width="60" Style="{StaticResource AppTextBox}" />
+                            <TextBox x:Name="CaseThresholdBox" Width="60" Style="{StaticResource AppTextBox}"
+                                     LostFocus="OnThresholdChanged" />
                             <TextBlock Text="%" VerticalAlignment="Center" Margin="6,0,0,0" />
                         </StackPanel>
-                        <CheckBox Content="방해 금지 시간 사용" Margin="0,10,0,0" />
-                        <CheckBox Content="반복 알림 억제" IsChecked="True" Margin="0,5" />
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <CheckBox x:Name="SuppressRepeatCheckBox" Content="반복 알림 억제" VerticalAlignment="Center"
+                                      Checked="OnSuppressRepeatChanged" Unchecked="OnSuppressRepeatChanged" />
+                            <TextBox x:Name="SuppressMinutesBox" Width="52" Margin="12,0,0,0" Style="{StaticResource AppTextBox}"
+                                     LostFocus="OnSuppressMinutesChanged" />
+                            <TextBlock Text="분 이내 반복 억제" VerticalAlignment="Center" Margin="6,0,0,0" />
+                        </StackPanel>
+                        <CheckBox x:Name="QuietHoursCheckBox" Content="방해 금지 시간 사용" Margin="0,12,0,0"
+                                  Checked="OnQuietHoursChanged" Unchecked="OnQuietHoursChanged" />
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="방해 금지 시간대" VerticalAlignment="Center" Width="120" />
+                            <TextBox x:Name="QuietStartBox" Width="64" Style="{StaticResource AppTextBox}"
+                                     LostFocus="OnQuietTimeChanged" />
+                            <TextBlock Text="~" VerticalAlignment="Center" Margin="8,0,8,0" />
+                            <TextBox x:Name="QuietEndBox" Width="64" Style="{StaticResource AppTextBox}"
+                                     LostFocus="OnQuietTimeChanged" />
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Border>
@@ -74,10 +94,17 @@
             <Border Style="{StaticResource Card}" Margin="0,0,0,16">
                 <StackPanel>
                     <TextBlock Text="개인정보" Style="{StaticResource Title}" Margin="0,0,0,12" />
-                    <StackPanel IsEnabled="False">
-                        <CheckBox Content="네트워크 접근 (비활성 · 로컬 전용)" Margin="0,5" />
-                        <CheckBox Content="사용 통계 수집 (비활성)" Margin="0,5" />
-                        <CheckBox Content="진단에서 블루투스 주소 마스킹" IsChecked="True" Margin="0,5" />
+                    <StackPanel>
+                        <CheckBox x:Name="MaskAddressesCheckBox" Content="진단에서 블루투스 주소 마스킹" Margin="0,5"
+                                  Checked="OnMaskAddressesChanged" Unchecked="OnMaskAddressesChanged" />
+                        <TextBlock Text="진단 내보내기에 포함되는 블루투스 주소를 가립니다."
+                                   Style="{StaticResource Caption}" Margin="0,4,0,10" TextWrapping="Wrap" />
+                        <StackPanel IsEnabled="False">
+                            <CheckBox Content="네트워크 접근 (비활성 · 로컬 전용)" Margin="0,5" />
+                            <CheckBox Content="사용 통계 수집 (비활성)" Margin="0,5" />
+                        </StackPanel>
+                        <TextBlock Text="이 앱은 로컬 전용입니다 — 네트워크·통계 항목은 항상 꺼져 있습니다."
+                                   Style="{StaticResource Caption}" Margin="0,6,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                 </StackPanel>
             </Border>

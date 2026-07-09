@@ -133,6 +133,7 @@ public partial class App : System.Windows.Application
             executeOnlyOnce: false);
 
         InitializeStorageAndLogging();
+        ApplyStartWithWindowsSetting();
         ApplyTheme(_settings?.App.Theme);
         InitializeTrayIcon();
         InitializeScanner();
@@ -1013,6 +1014,42 @@ public partial class App : System.Windows.Application
     private void SetSkippedVersion(string version)
         => UpdateAndSaveSettings(s => s with { Updates = s.Updates with { SkippedVersion = version } });
 
+    // ----- Notifications (Settings → 알림) -----
+    internal NotificationSettings CurrentNotifications => _settings?.Notifications ?? new NotificationSettings();
+
+    internal void UpdateNotifications(Func<NotificationSettings, NotificationSettings> mutate)
+        => UpdateAndSaveSettings(s => s with { Notifications = mutate(s.Notifications) });
+
+    // ----- Minimize to tray on close (Settings → 일반) -----
+    internal bool MinimizeToTrayOnClose => _settings?.App.MinimizeToTray ?? true;
+
+    internal void SetMinimizeToTray(bool enabled)
+        => UpdateAndSaveSettings(s => s with { App = s.App with { MinimizeToTray = enabled } });
+
+    // ----- Start with Windows (Settings → 일반; HKCU Run key) -----
+    internal bool IsStartWithWindows => _settings?.App.StartWithWindows ?? false;
+
+    internal void SetStartWithWindows(bool enabled)
+    {
+        UpdateAndSaveSettings(s => s with { App = s.App with { StartWithWindows = enabled } });
+        WindowsStartup.Apply(enabled);
+    }
+
+    /// <summary>Reconciles the Run-key entry with the persisted setting on launch.</summary>
+    private void ApplyStartWithWindowsSetting()
+    {
+        if (_settings is not null)
+        {
+            WindowsStartup.Apply(_settings.App.StartWithWindows);
+        }
+    }
+
+    // ----- Diagnostics address masking (Settings → 개인정보) -----
+    internal bool IsMaskBluetoothAddresses => _settings?.Privacy.MaskBluetoothAddressesInLogs ?? true;
+
+    internal void SetMaskBluetoothAddresses(bool enabled)
+        => UpdateAndSaveSettings(s => s with { Privacy = s.Privacy with { MaskBluetoothAddressesInLogs = enabled } });
+
     private void UpdateAndSaveSettings(Func<BudsMonitorSettings, BudsMonitorSettings> mutate)
     {
         if (_settings is null || _storagePaths is null)
@@ -1383,12 +1420,16 @@ finally {
     {
         var dark = IsCurrentThemeDark();
         var surface = dark ? System.Drawing.Color.FromArgb(0x26, 0x26, 0x26) : System.Drawing.Color.White;
-        var hover = dark ? System.Drawing.Color.FromArgb(0x37, 0x37, 0x37) : System.Drawing.Color.FromArgb(0xF0, 0xF0, 0xF0);
         var border = dark ? System.Drawing.Color.FromArgb(0x37, 0x37, 0x37) : System.Drawing.Color.FromArgb(0xE6, 0xE6, 0xE6);
         var ink = dark ? System.Drawing.Color.FromArgb(0xEB, 0xEB, 0xEB) : System.Drawing.Color.Black;
+        // Selection uses the app's primary accent (#3B9DF7) so the highlighted item is clearly
+        // visible — the previous faint-gray hover blended into the dark surface.
+        var accent = System.Drawing.Color.FromArgb(0x3B, 0x9D, 0xF7);
+        var accentActive = System.Drawing.Color.FromArgb(0x2E, 0x7D, 0xD0);
+        var onAccent = System.Drawing.Color.White;
 
-        menu.Renderer = new System.Windows.Forms.ToolStripProfessionalRenderer(
-            new TrayColorTable(surface, hover, border)) { RoundedEdges = false };
+        menu.Renderer = new ThemedMenuRenderer(
+            new TrayColorTable(surface, accent, accentActive, border), ink, onAccent) { RoundedEdges = false };
         menu.BackColor = surface;
         menu.ForeColor = ink;
         foreach (System.Windows.Forms.ToolStripItem item in menu.Items)
@@ -1397,7 +1438,25 @@ finally {
         }
     }
 
-    private sealed class TrayColorTable(System.Drawing.Color surface, System.Drawing.Color hover, System.Drawing.Color border)
+    /// <summary>Draws menu-item text white when the item is highlighted (over the accent), ink otherwise.</summary>
+    private sealed class ThemedMenuRenderer(
+        System.Windows.Forms.ProfessionalColorTable colors,
+        System.Drawing.Color ink,
+        System.Drawing.Color onAccent)
+        : System.Windows.Forms.ToolStripProfessionalRenderer(colors)
+    {
+        protected override void OnRenderItemText(System.Windows.Forms.ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = e.Item is { Selected: true, Enabled: true } ? onAccent : ink;
+            base.OnRenderItemText(e);
+        }
+    }
+
+    private sealed class TrayColorTable(
+        System.Drawing.Color surface,
+        System.Drawing.Color selected,
+        System.Drawing.Color pressed,
+        System.Drawing.Color border)
         : System.Windows.Forms.ProfessionalColorTable
     {
         public override System.Drawing.Color ToolStripDropDownBackground => surface;
@@ -1405,12 +1464,12 @@ finally {
         public override System.Drawing.Color ImageMarginGradientMiddle => surface;
         public override System.Drawing.Color ImageMarginGradientEnd => surface;
         public override System.Drawing.Color MenuBorder => border;
-        public override System.Drawing.Color MenuItemBorder => hover;
-        public override System.Drawing.Color MenuItemSelected => hover;
-        public override System.Drawing.Color MenuItemSelectedGradientBegin => hover;
-        public override System.Drawing.Color MenuItemSelectedGradientEnd => hover;
-        public override System.Drawing.Color MenuItemPressedGradientBegin => surface;
-        public override System.Drawing.Color MenuItemPressedGradientEnd => surface;
+        public override System.Drawing.Color MenuItemBorder => selected;
+        public override System.Drawing.Color MenuItemSelected => selected;
+        public override System.Drawing.Color MenuItemSelectedGradientBegin => selected;
+        public override System.Drawing.Color MenuItemSelectedGradientEnd => selected;
+        public override System.Drawing.Color MenuItemPressedGradientBegin => pressed;
+        public override System.Drawing.Color MenuItemPressedGradientEnd => pressed;
         public override System.Drawing.Color SeparatorDark => border;
         public override System.Drawing.Color SeparatorLight => border;
     }
@@ -1460,7 +1519,7 @@ finally {
         _settingsWindow.Activate();
     }
 
-    private void QuitApplication()
+    internal void QuitApplication()
     {
         IsShuttingDown = true;
         Log.Information("BudsMonitor shutting down");
