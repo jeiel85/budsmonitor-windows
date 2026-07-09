@@ -41,7 +41,10 @@ public partial class App : System.Windows.Application
     private MainWindow? _dashboardWindow;
     private SettingsWindow? _settingsWindow;
     private StoragePaths? _storagePaths;
-    private BudsMonitorSettings? _settings;
+    // volatile: written on the UI thread (settings changes), read on the BLE frame-consumer
+    // thread (BuildNotificationOptions) — the barrier makes runtime changes visible promptly.
+    private volatile BudsMonitorSettings? _settings;
+    private bool _firstRun;
     private BatteryCacheFile? _batteryCache;
     private BleAdvertisementScannerService? _scanner;
     private CancellationTokenSource? _frameConsumerCts;
@@ -153,6 +156,7 @@ public partial class App : System.Windows.Application
             _storagePaths = StoragePaths.CreateDefault();
             LoggingBootstrapper.Initialize(_storagePaths);
 
+            _firstRun = !File.Exists(_storagePaths.SettingsFile);
             _settings = new SettingsRepository(_storagePaths).LoadOrCreate();
             _deviceRegistry = new DeviceRegistry(new DeviceRegistryRepository(_storagePaths));
             _cacheRepository = new BatteryCacheRepository(_storagePaths);
@@ -1027,7 +1031,9 @@ public partial class App : System.Windows.Application
         => UpdateAndSaveSettings(s => s with { App = s.App with { MinimizeToTray = enabled } });
 
     // ----- Start with Windows (Settings → 일반; HKCU Run key) -----
-    internal bool IsStartWithWindows => _settings?.App.StartWithWindows ?? false;
+    // The registry is the source of truth so the checkbox reflects reality even if the user
+    // disabled us via Task Manager's Startup tab.
+    internal bool IsStartWithWindows => WindowsStartup.IsEnabled();
 
     internal void SetStartWithWindows(bool enabled)
     {
@@ -1035,12 +1041,28 @@ public partial class App : System.Windows.Application
         WindowsStartup.Apply(enabled);
     }
 
-    /// <summary>Reconciles the Run-key entry with the persisted setting on launch.</summary>
+    /// <summary>
+    /// Fresh installs honor the "start with Windows" default once. On later launches the Run key
+    /// — which the user or Task Manager may have changed — is the source of truth, and the
+    /// persisted setting is synced to it. We never silently (re-)enable auto-start on upgrade.
+    /// </summary>
     private void ApplyStartWithWindowsSetting()
     {
-        if (_settings is not null)
+        if (_settings is null)
+        {
+            return;
+        }
+
+        if (_firstRun)
         {
             WindowsStartup.Apply(_settings.App.StartWithWindows);
+            return;
+        }
+
+        var actual = WindowsStartup.IsEnabled();
+        if (actual != _settings.App.StartWithWindows)
+        {
+            UpdateAndSaveSettings(s => s with { App = s.App with { StartWithWindows = actual } });
         }
     }
 
