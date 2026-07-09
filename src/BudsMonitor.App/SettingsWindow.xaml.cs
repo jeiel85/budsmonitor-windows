@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media.Animation;
 
 namespace BudsMonitor.App;
 
@@ -41,12 +42,58 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void OnCheckUpdatesNow(object sender, RoutedEventArgs e)
+    private async void OnCheckUpdatesNow(object sender, RoutedEventArgs e)
     {
-        if (System.Windows.Application.Current is App app)
+        if (System.Windows.Application.Current is not App app)
         {
-            app.CheckForUpdatesManually();
+            return;
         }
+
+        SetUpdateStatus("확인 중…", "InkMutedBrush", persistent: true);
+        var result = await app.CheckNowAsync();
+        switch (result.Outcome)
+        {
+            case App.ManualUpdateOutcome.UpToDate:
+                SetUpdateStatus("✓ " + result.Message, "AccentGreenBrush", persistent: false);
+                break;
+            case App.ManualUpdateOutcome.UpdateAvailable:
+                HideUpdateStatus();  // the update dialog is now on screen
+                break;
+            default:
+                SetUpdateStatus(result.Message, "AccentOrangeBrush", persistent: false);
+                break;
+        }
+    }
+
+    /// <summary>Shows the inline update status; transient messages fade out after a beat.</summary>
+    private void SetUpdateStatus(string text, string brushKey, bool persistent)
+    {
+        UpdateStatusText.BeginAnimation(OpacityProperty, null);
+        UpdateStatusText.Text = text;
+        UpdateStatusText.Foreground = TryFindResource(brushKey) as System.Windows.Media.Brush ?? UpdateStatusText.Foreground;
+        UpdateStatusText.Opacity = 1;
+        UpdateStatusText.Visibility = Visibility.Visible;
+
+        if (persistent)
+        {
+            return;
+        }
+
+        var fade = new DoubleAnimation
+        {
+            From = 1,
+            To = 0,
+            BeginTime = TimeSpan.FromSeconds(2.2),
+            Duration = TimeSpan.FromMilliseconds(600),
+        };
+        fade.Completed += (_, _) => UpdateStatusText.Visibility = Visibility.Collapsed;
+        UpdateStatusText.BeginAnimation(OpacityProperty, fade);
+    }
+
+    private void HideUpdateStatus()
+    {
+        UpdateStatusText.BeginAnimation(OpacityProperty, null);
+        UpdateStatusText.Visibility = Visibility.Collapsed;
     }
 
     private void OnShowHiddenChanged(object sender, RoutedEventArgs e)

@@ -908,7 +908,58 @@ public partial class App : System.Windows.Application
         }
     }
 
-    internal void CheckForUpdatesManually() => _ = RunUpdateCheckAsync(manual: true);
+    internal enum ManualUpdateOutcome { UpToDate, UpdateAvailable, Failed }
+
+    internal sealed record UpdateCheckResult(ManualUpdateOutcome Outcome, string Message);
+
+    /// <summary>Manual check triggered from the tray — reports the result as a balloon.</summary>
+    internal void CheckForUpdatesManually() => _ = CheckFromTrayAsync();
+
+    private async Task CheckFromTrayAsync()
+    {
+        var result = await CheckNowAsync();
+        if (result.Outcome == ManualUpdateOutcome.UpToDate)
+        {
+            NotifyBalloon("BudsMonitor", $"최신 버전입니다 ({GetCurrentVersionString()}).");
+        }
+        else if (result.Outcome == ManualUpdateOutcome.Failed)
+        {
+            NotifyBalloon("업데이트 확인 실패", result.Message);
+        }
+    }
+
+    /// <summary>
+    /// Interactive update check (tray / settings). Shows the update dialog when a newer version
+    /// exists and returns the outcome so the caller can surface a brief status message.
+    /// </summary>
+    internal async Task<UpdateCheckResult> CheckNowAsync()
+    {
+        UpdateInfo? info;
+        try
+        {
+            info = await _updateService.CheckForUpdateAsync(CurrentVersion);
+        }
+        catch (UpdateCheckException ex)
+        {
+            Log.Warning("Update check failed: {Kind} {Message}", ex.Kind, ex.Message);
+            return new UpdateCheckResult(ManualUpdateOutcome.Failed, DescribeUpdateError(ex));
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Update check failed");
+            return new UpdateCheckResult(ManualUpdateOutcome.Failed, "확인에 실패했습니다.");
+        }
+
+        if (info is null)
+        {
+            Log.Information("Update check: up to date (v{Version})", CurrentVersion.ToString(3));
+            return new UpdateCheckResult(ManualUpdateOutcome.UpToDate, $"최신 버전 · {GetCurrentVersionString()}");
+        }
+
+        Log.Information("Update available: {Tag}", info.Tag);
+        await Dispatcher.InvokeAsync(() => ShowUpdateDialog(info));
+        return new UpdateCheckResult(ManualUpdateOutcome.UpdateAvailable, info.Tag);
+    }
 
     private void StartupUpdateCheck()
     {
@@ -920,52 +971,28 @@ public partial class App : System.Windows.Application
         _ = Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromSeconds(6));
-            await RunUpdateCheckAsync(manual: false);
+            await RunStartupCheckAsync();
         });
     }
 
-    private async Task RunUpdateCheckAsync(bool manual)
+    private async Task RunStartupCheckAsync()
     {
-        UpdateInfo? info;
         try
         {
-            var skipped = manual ? null : _settings?.Updates.SkippedVersion;
-            info = await _updateService.CheckForUpdateAsync(CurrentVersion, skipped);
-        }
-        catch (UpdateCheckException ex)
-        {
-            Log.Warning("Update check failed: {Kind} {Message}", ex.Kind, ex.Message);
-            if (manual)
+            var info = await _updateService.CheckForUpdateAsync(CurrentVersion, _settings?.Updates.SkippedVersion);
+            if (info is null)
             {
-                NotifyBalloon("업데이트 확인 실패", DescribeUpdateError(ex));
+                Log.Information("Startup update check: up to date (v{Version})", CurrentVersion.ToString(3));
+                return;
             }
 
-            return;
+            Log.Information("Update available: {Tag}", info.Tag);
+            await Dispatcher.InvokeAsync(() => ShowUpdateDialog(info));
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "Update check failed");
-            if (manual)
-            {
-                NotifyBalloon("업데이트 확인 실패", "잠시 후 다시 시도해 주세요.");
-            }
-
-            return;
+            Log.Warning(ex, "Startup update check failed");
         }
-
-        if (info is null)
-        {
-            Log.Information("Update check: up to date (v{Version})", CurrentVersion.ToString(3));
-            if (manual)
-            {
-                NotifyBalloon("BudsMonitor", $"최신 버전입니다 ({GetCurrentVersionString()}).");
-            }
-
-            return;
-        }
-
-        Log.Information("Update available: {Tag}", info.Tag);
-        await Dispatcher.InvokeAsync(() => ShowUpdateDialog(info));
     }
 
     private static string DescribeUpdateError(UpdateCheckException ex) => ex.Kind switch

@@ -90,8 +90,12 @@
                               Checked="OnUpdateCheckToggled" Unchecked="OnUpdateCheckToggled" />
                     <TextBlock Text="업데이트 확인은 GitHub에 연결하는 유일한 네트워크 사용입니다. 사용 통계·텔레메트리는 전송하지 않습니다."
                                Style="{StaticResource Caption}" Margin="0,4,0,12" TextWrapping="Wrap" />
-                    <Button Content="지금 업데이트 확인" Style="{StaticResource ButtonUtility}"
-                            HorizontalAlignment="Left" Click="OnCheckUpdatesNow" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="지금 업데이트 확인" Style="{StaticResource ButtonUtility}"
+                                Click="OnCheckUpdatesNow" />
+                        <TextBlock x:Name="UpdateStatusText" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   FontSize="14" FontWeight="Medium" Visibility="Collapsed" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
