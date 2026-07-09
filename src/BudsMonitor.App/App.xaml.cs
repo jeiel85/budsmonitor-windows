@@ -105,6 +105,14 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
 
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Log.Error(args.Exception, "Unhandled UI exception");
+            args.Handled = true; // a dialog/UI error must not take down the tray app
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            Log.Error(args.ExceptionObject as Exception, "Unhandled non-UI exception");
+
         _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out bool createdNew);
         _showRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowRequestEventName);
 
@@ -194,6 +202,11 @@ public partial class App : System.Windows.Application
     {
         var theme = index switch { 1 => "light", 2 => "dark", _ => "system" };
         ApplyTheme(theme);
+        if (_notifyIcon?.ContextMenuStrip is { } trayMenu)
+        {
+            ApplyTrayMenuTheme(trayMenu);
+        }
+
         UpdateAndSaveSettings(s => s with { App = s.App with { Theme = theme } });
     }
 
@@ -644,10 +657,30 @@ public partial class App : System.Windows.Application
         }
 
         var current = _deviceRegistry.Get(key)?.Alias ?? string.Empty;
-        var alias = Microsoft.VisualBasic.Interaction.InputBox(
-            "별칭을 입력하세요 (비우면 원래 이름 사용)", "별칭 설정", current);
-        _deviceRegistry.SetAlias(key, alias);
-        ReapplyDevice(key);
+        var dialog = new TextPromptWindow(
+            "별칭 설정", "별칭을 입력하세요 (비우면 원래 이름 사용)", current,
+            alias =>
+            {
+                if (alias is null)
+                {
+                    return; // cancelled — leave the alias unchanged
+                }
+
+                _deviceRegistry.SetAlias(key, alias);
+                ReapplyDevice(key);
+            });
+
+        if (_dashboardWindow is { IsVisible: true })
+        {
+            dialog.Owner = _dashboardWindow;
+        }
+        else
+        {
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+
+        dialog.Show();
+        dialog.Activate();
     }
 
     internal void SetShowHiddenDevices(bool show)
@@ -1325,6 +1358,8 @@ finally {
         menu.Items.Add("설정", image: null, (_, _) => ShowSettingsWindow());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("종료", image: null, (_, _) => QuitApplication());
+        menu.ShowImageMargin = false;
+        ApplyTrayMenuTheme(menu);
 
         _notifyIcon = new System.Windows.Forms.NotifyIcon
         {
@@ -1334,6 +1369,50 @@ finally {
             ContextMenuStrip = menu,
         };
         _notifyIcon.DoubleClick += (_, _) => ShowDashboard();
+    }
+
+    private bool IsCurrentThemeDark() => _settings?.App.Theme?.ToLowerInvariant() switch
+    {
+        "dark" => true,
+        "light" => false,
+        _ => IsWindowsDarkTheme(),
+    };
+
+    /// <summary>Colors the WinForms tray context menu to match the Notion light/dark theme.</summary>
+    private void ApplyTrayMenuTheme(System.Windows.Forms.ContextMenuStrip menu)
+    {
+        var dark = IsCurrentThemeDark();
+        var surface = dark ? System.Drawing.Color.FromArgb(0x26, 0x26, 0x26) : System.Drawing.Color.White;
+        var hover = dark ? System.Drawing.Color.FromArgb(0x37, 0x37, 0x37) : System.Drawing.Color.FromArgb(0xF0, 0xF0, 0xF0);
+        var border = dark ? System.Drawing.Color.FromArgb(0x37, 0x37, 0x37) : System.Drawing.Color.FromArgb(0xE6, 0xE6, 0xE6);
+        var ink = dark ? System.Drawing.Color.FromArgb(0xEB, 0xEB, 0xEB) : System.Drawing.Color.Black;
+
+        menu.Renderer = new System.Windows.Forms.ToolStripProfessionalRenderer(
+            new TrayColorTable(surface, hover, border)) { RoundedEdges = false };
+        menu.BackColor = surface;
+        menu.ForeColor = ink;
+        foreach (System.Windows.Forms.ToolStripItem item in menu.Items)
+        {
+            item.ForeColor = ink;
+        }
+    }
+
+    private sealed class TrayColorTable(System.Drawing.Color surface, System.Drawing.Color hover, System.Drawing.Color border)
+        : System.Windows.Forms.ProfessionalColorTable
+    {
+        public override System.Drawing.Color ToolStripDropDownBackground => surface;
+        public override System.Drawing.Color ImageMarginGradientBegin => surface;
+        public override System.Drawing.Color ImageMarginGradientMiddle => surface;
+        public override System.Drawing.Color ImageMarginGradientEnd => surface;
+        public override System.Drawing.Color MenuBorder => border;
+        public override System.Drawing.Color MenuItemBorder => hover;
+        public override System.Drawing.Color MenuItemSelected => hover;
+        public override System.Drawing.Color MenuItemSelectedGradientBegin => hover;
+        public override System.Drawing.Color MenuItemSelectedGradientEnd => hover;
+        public override System.Drawing.Color MenuItemPressedGradientBegin => surface;
+        public override System.Drawing.Color MenuItemPressedGradientEnd => surface;
+        public override System.Drawing.Color SeparatorDark => border;
+        public override System.Drawing.Color SeparatorLight => border;
     }
 
     private static System.Drawing.Icon LoadTrayIcon()
