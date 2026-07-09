@@ -12,28 +12,24 @@ The repository has moved from the old LibrePods Windows feasibility fork into a 
 
 ## Current Status
 
-This repo is at the foundation stage.
+Beta — GOAL 0 through GOAL 12 of the implementation roadmap are complete. BudsMonitor is a
+daily-driver tray utility backed by 80 passing unit tests.
 
-Implemented now:
+Implemented:
 
-- `.NET 10.0.301` pinned by [`global.json`](./global.json)
-- classic solution file at [`src/BudsMonitor.sln`](./src/BudsMonitor.sln)
-- WPF app shell project at `src/BudsMonitor.App`
-- domain/application/bluetooth/provider/infrastructure/diagnostics/test project skeletons
-- minimal smoke test in `src/BudsMonitor.Tests`
-- feasibility notes preserved under [`docs/research`](./docs/research/README.md)
-- integrated production design bundle under [`docs/budsmonitor-integrated-design`](./docs/budsmonitor-integrated-design/README.md)
+- `.NET 10.0.301` pinned by [`global.json`](./global.json); solution at [`src/BudsMonitor.sln`](./src/BudsMonitor.sln)
+- tray-first WPF shell (single instance, close-to-tray, quit), Notion-style light/dark UI
+- AirPods BLE proximity advertisement parser + scanner + provider (left/right/case, charging)
+- last-known cache with stale-state display and freshness badges
+- low-battery notifications with repeat suppression and quiet hours
+- generic standard-GATT Battery Service provider for other BLE devices
+- device management: pin / hide / alias, persisted per device
+- local diagnostics ZIP export (Bluetooth addresses masked by default, nothing transmitted)
+- sleep/resume and Bluetooth on/off self-recovery with failure backoff
+- Galaxy Buds limited-support track (name detection only; no battery — proprietary protocol)
+- settings, 14-day rolling file logs, cache, and device registry under the user profile
 
-Not implemented yet:
-
-- tray icon behavior
-- AirPods parser port
-- BLE advertisement scanner
-- battery cache/settings/logging
-- real device card UI
-- notifications
-- diagnostics export
-- Generic GATT and Galaxy Buds providers
+Known limitations are documented honestly in [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md).
 
 ## Product Scope
 
@@ -116,23 +112,40 @@ Current expected result:
 
 ```text
 Build: warnings 0, errors 0
-Tests: 1 passed
+Tests: 80 passed
 ```
+
+## Portable build
+
+To produce a self-contained portable build (no .NET install required on the target machine):
+
+```powershell
+pwsh -File scripts\publish-portable.ps1
+```
+
+This publishes `src/BudsMonitor.App` self-contained for `win-x64` and writes both an
+unzipped folder and `BudsMonitor-portable-win-x64.zip` under `dist/` (git-ignored). Unzip
+anywhere on Windows 10 1809+/11 and run `BudsMonitor.App.exe`.
 
 ## Implementation Roadmap
 
 The detailed sequence lives in [`docs/budsmonitor-integrated-design/docs/13-implementation-goals.md`](./docs/budsmonitor-integrated-design/docs/13-implementation-goals.md).
 
-Near-term order:
+All 13 goals (GOAL 0 – GOAL 12) are implemented:
 
-1. GOAL 0: repository foundation and empty solution skeleton
+1. GOAL 0: repository foundation and solution skeleton
 2. GOAL 1: WPF tray shell
 3. GOAL 2: settings, logging, cache foundation
 4. GOAL 3: AirPods advertisement parser port
 5. GOAL 4: BLE advertisement scanner
 6. GOAL 5: AirPods provider integration
-
-GOAL 0 is the current working branch state. GOAL 1 is the next implementation target.
+7. GOAL 6: low-battery notification engine
+8. GOAL 7: generic standard-GATT Battery Service provider
+9. GOAL 8: device management (pin / hide / alias)
+10. GOAL 9: local diagnostics export
+11. GOAL 10: sleep/resume and self-repair
+12. GOAL 11: Galaxy Buds limited-support track
+13. GOAL 12: daily-driver beta hardening (this milestone)
 
 ## Legacy Research Source
 
