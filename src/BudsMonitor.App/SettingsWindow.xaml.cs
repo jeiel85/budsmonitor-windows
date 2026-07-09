@@ -8,9 +8,36 @@ namespace BudsMonitor.App;
 /// </summary>
 public partial class SettingsWindow : Window
 {
+    private readonly bool _initialized;
+
     public SettingsWindow()
     {
         InitializeComponent();
+
+        if (System.Windows.Application.Current is App app)
+        {
+            VersionText.Text = app.GetCurrentVersionString();
+            CheckUpdatesCheckBox.IsChecked = app.IsUpdateCheckOnStartup;
+        }
+
+        _initialized = true;
+    }
+
+    private void OnUpdateCheckToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initialized && System.Windows.Application.Current is App app
+            && sender is System.Windows.Controls.CheckBox checkBox)
+        {
+            app.SetUpdateCheckOnStartup(checkBox.IsChecked == true);
+        }
+    }
+
+    private void OnCheckUpdatesNow(object sender, RoutedEventArgs e)
+    {
+        if (System.Windows.Application.Current is App app)
+        {
+            app.CheckForUpdatesManually();
+        }
     }
 
     private void OnShowHiddenChanged(object sender, RoutedEventArgs e)

@@ -11,6 +11,16 @@ public sealed record BudsMonitorSettings
     public MonitoringSettings Monitoring { get; init; } = new();
     public NotificationSettings Notifications { get; init; } = new();
     public PrivacySettings Privacy { get; init; } = new();
+    public UpdatesSettings Updates { get; init; } = new();
+}
+
+public sealed record UpdatesSettings
+{
+    /// <summary>Check GitHub for a newer release shortly after launch. The only network use.</summary>
+    public bool CheckOnStartup { get; init; } = true;
+
+    /// <summary>A version the user chose to skip; the same version won't prompt again.</summary>
+    public string SkippedVersion { get; init; } = "";
 }
 
 public sealed record AppSettings

@@ -8,7 +8,7 @@ The repository has moved from the old LibrePods Windows feasibility fork into a 
 - repository identity: `jeiel85/budsmonitor-windows`
 - implementation stack: C# / .NET 10 / WPF
 - primary UX: tray-first Windows desktop app
-- privacy model: local-only, no account, no analytics, no telemetry, no normal-operation network calls
+- privacy model: local-first — no account, analytics, or telemetry; the only network use is the optional GitHub update check
 
 ## Current Status
 
@@ -27,6 +27,7 @@ Implemented:
 - local diagnostics ZIP export (Bluetooth addresses masked by default, nothing transmitted)
 - sleep/resume and Bluetooth on/off self-recovery with failure backoff
 - Galaxy Buds limited-support track (name detection only; no battery — proprietary protocol)
+- optional auto-update from GitHub Releases (opt-outable; the app's only network use)
 - settings, 14-day rolling file logs, cache, and device registry under the user profile
 
 Known limitations are documented honestly in [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md).

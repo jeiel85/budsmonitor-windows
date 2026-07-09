@@ -40,11 +40,17 @@ if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Write-Host "Zipping portable bundle..." -ForegroundColor Cyan
 Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zipPath
 
+# Checksum for the in-app updater to verify the download.
+$shaPath = "$zipPath.sha256"
+$hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+"$hash  $(Split-Path $zipPath -Leaf)" | Out-File -FilePath $shaPath -Encoding ascii -NoNewline
+
 $zipMb = [Math]::Round((Get-Item $zipPath).Length / 1MB, 1)
 Write-Host ""
 Write-Host "Portable build ready:" -ForegroundColor Green
 Write-Host "  folder : $publishDir"
 Write-Host "  exe    : $exe"
 Write-Host "  zip    : $zipPath ($zipMb MB)"
+Write-Host "  sha256 : $shaPath"
 Write-Host ""
 Write-Host "Unzip anywhere and run BudsMonitor.App.exe. No .NET install required."

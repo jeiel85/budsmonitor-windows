@@ -1,8 +1,8 @@
 # BudsMonitor Troubleshooting & Known Limitations
 
-BudsMonitor is a **local-only** Windows tray app. It never makes network calls during
-normal operation (see [No-network guarantee](#no-network-guarantee)). When something looks
-wrong, the fastest path to a diagnosis is the built-in diagnostics bundle.
+BudsMonitor is a **local-first** Windows tray app. Its only network use is the optional
+GitHub update check (see [Network use](#network-use)). When something looks wrong, the
+fastest path to a diagnosis is the built-in diagnostics bundle.
 
 ## Where things live
 
@@ -76,12 +76,14 @@ and the two most recent log files.
 - **Battery percentages are the device's own coarse values** (often 10% steps for AirPods)
   and never interpolated. A missing part is simply absent, never shown as 0%.
 
-## No-network guarantee
+## Network use
 
-BudsMonitor performs **no network I/O** in normal operation. There is no account, no
-analytics, and no telemetry. The codebase references no HTTP/socket APIs, and
-`analyticsEnabled` / `networkEnabled` are forced off on every settings load/save. The only
-runtime dependency that touches I/O is local file logging (Serilog file sink).
+BudsMonitor has **no account, no analytics, and no telemetry** — no usage or device data
+ever leaves your machine. The single exception is the **optional update check**: when
+"시작 시 업데이트 확인" is enabled (Settings → 업데이트) or you press "지금 업데이트 확인",
+the app queries the GitHub Releases API and, only if you choose to update, downloads the new
+build (verified by SHA256). Turn that setting off to run fully offline. Battery/advertisement
+data is never transmitted, and `analyticsEnabled` stays forced off.
 
 ## Full reset
 

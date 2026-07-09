@@ -78,6 +78,23 @@
                 </StackPanel>
             </Border>
 
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="업데이트" Style="{StaticResource Title}" Margin="0,0,0,12" />
+                    <DockPanel Margin="0,0,0,10">
+                        <TextBlock Text="현재 버전" DockPanel.Dock="Left"
+                                   Foreground="{DynamicResource InkMutedBrush}" />
+                        <TextBlock x:Name="VersionText" HorizontalAlignment="Right" FontWeight="SemiBold" Text="—" />
+                    </DockPanel>
+                    <CheckBox x:Name="CheckUpdatesCheckBox" Content="시작 시 업데이트 확인" Margin="0,5"
+                              Checked="OnUpdateCheckToggled" Unchecked="OnUpdateCheckToggled" />
+                    <TextBlock Text="업데이트 확인은 GitHub에 연결하는 유일한 네트워크 사용입니다. 사용 통계·텔레메트리는 전송하지 않습니다."
+                               Style="{StaticResource Caption}" Margin="0,4,0,12" TextWrapping="Wrap" />
+                    <Button Content="지금 업데이트 확인" Style="{StaticResource ButtonUtility}"
+                            HorizontalAlignment="Left" Click="OnCheckUpdatesNow" />
+                </StackPanel>
+            </Border>
+
             <Border Style="{StaticResource Card}">
                 <StackPanel>
                     <TextBlock Text="진단" Style="{StaticResource Title}" Margin="0,0,0,12" />

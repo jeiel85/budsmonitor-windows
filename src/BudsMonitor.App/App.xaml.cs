@@ -4,6 +4,7 @@ using System.Windows;
 using Microsoft.Win32;
 using BudsMonitor.App.ViewModels;
 using BudsMonitor.Application;
+using BudsMonitor.Application.Updates;
 using BudsMonitor.Bluetooth;
 using BudsMonitor.Diagnostics;
 using BudsMonitor.Domain;
@@ -85,6 +86,14 @@ public partial class App : System.Windows.Application
     private int _baseGattIntervalSeconds = 300;
     private bool _scannerRestartScheduled;
 
+    // Auto-update (GitHub releases). The app's only network use, opt-outable.
+    private readonly UpdateService _updateService = new();
+    private UpdateDialog? _updateDialog;
+    private bool _updateInProgress;
+
+    private static Version CurrentVersion =>
+        System.Reflection.Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
+
     /// <summary>True once the user has chosen Quit, so windows may close for real.</summary>
     public bool IsShuttingDown { get; private set; }
 
@@ -120,6 +129,7 @@ public partial class App : System.Windows.Application
         StartGattPolling();
         InitializeSelfRepair();
         UpdateTrayFromDashboard();
+        StartupUpdateCheck();
     }
 
     private void InitializeStorageAndLogging()
@@ -852,6 +862,243 @@ public partial class App : System.Windows.Application
         ApplyGattInterval(0);
     }
 
+    // ----- Auto-update ----------------------------------------------------------
+
+    internal string GetCurrentVersionString() => "v" + CurrentVersion.ToString(3);
+
+    internal bool IsUpdateCheckOnStartup => _settings?.Updates.CheckOnStartup ?? true;
+
+    internal void SetUpdateCheckOnStartup(bool enabled)
+        => UpdateAndSaveSettings(s => s with { Updates = s.Updates with { CheckOnStartup = enabled } });
+
+    private void SetSkippedVersion(string version)
+        => UpdateAndSaveSettings(s => s with { Updates = s.Updates with { SkippedVersion = version } });
+
+    private void UpdateAndSaveSettings(Func<BudsMonitorSettings, BudsMonitorSettings> mutate)
+    {
+        if (_settings is null || _storagePaths is null)
+        {
+            return;
+        }
+
+        _settings = mutate(_settings);
+        try
+        {
+            new SettingsRepository(_storagePaths).Save(_settings);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Settings save failed");
+        }
+    }
+
+    internal void CheckForUpdatesManually() => _ = RunUpdateCheckAsync(manual: true);
+
+    private void StartupUpdateCheck()
+    {
+        if (_settings?.Updates.CheckOnStartup != true)
+        {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            await RunUpdateCheckAsync(manual: false);
+        });
+    }
+
+    private async Task RunUpdateCheckAsync(bool manual)
+    {
+        UpdateInfo? info;
+        try
+        {
+            var skipped = manual ? null : _settings?.Updates.SkippedVersion;
+            info = await _updateService.CheckForUpdateAsync(CurrentVersion, skipped);
+        }
+        catch (UpdateCheckException ex)
+        {
+            Log.Warning("Update check failed: {Kind} {Message}", ex.Kind, ex.Message);
+            if (manual)
+            {
+                NotifyBalloon("업데이트 확인 실패", DescribeUpdateError(ex));
+            }
+
+            return;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Update check failed");
+            if (manual)
+            {
+                NotifyBalloon("업데이트 확인 실패", "잠시 후 다시 시도해 주세요.");
+            }
+
+            return;
+        }
+
+        if (info is null)
+        {
+            Log.Information("Update check: up to date (v{Version})", CurrentVersion.ToString(3));
+            if (manual)
+            {
+                NotifyBalloon("BudsMonitor", $"최신 버전입니다 ({GetCurrentVersionString()}).");
+            }
+
+            return;
+        }
+
+        Log.Information("Update available: {Tag}", info.Tag);
+        await Dispatcher.InvokeAsync(() => ShowUpdateDialog(info));
+    }
+
+    private static string DescribeUpdateError(UpdateCheckException ex) => ex.Kind switch
+    {
+        UpdateCheckErrorKind.Network => "네트워크에 연결할 수 없습니다.",
+        UpdateCheckErrorKind.Timeout => "응답 시간이 초과됐습니다.",
+        UpdateCheckErrorKind.RateLimit => ex.RetryAtLocal is { } time
+            ? $"GitHub 요청 한도 초과. {time} 이후 다시 시도하세요."
+            : "GitHub 요청 한도를 초과했습니다.",
+        _ => "업데이트 서버 오류입니다.",
+    };
+
+    private void NotifyBalloon(string title, string body)
+    {
+        if (_notifyIcon is null)
+        {
+            return;
+        }
+
+        Dispatcher.InvokeAsync(() =>
+            _notifyIcon.ShowBalloonTip(5000, title, body, System.Windows.Forms.ToolTipIcon.Info));
+    }
+
+    private void ShowUpdateDialog(UpdateInfo info)
+    {
+        if (_updateDialog is not null)
+        {
+            _updateDialog.Activate();
+            return;
+        }
+
+        var dialog = new UpdateDialog(info.Tag, info.ReleaseNotes);
+        dialog.SkipRequested += () => SetSkippedVersion(info.Version.ToString());
+        dialog.UpdateRequested += () => _ = DownloadAndApplyAsync(info, dialog);
+        dialog.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_updateDialog, dialog))
+            {
+                _updateDialog = null;
+            }
+        };
+
+        _updateDialog = dialog;
+        dialog.Show();
+        dialog.Activate();
+    }
+
+    private async Task DownloadAndApplyAsync(UpdateInfo info, UpdateDialog dialog)
+    {
+        if (_updateInProgress)
+        {
+            return;
+        }
+
+        _updateInProgress = true;
+        try
+        {
+            var progress = new Progress<int>(p => dialog.ShowProgress(p, $"다운로드 중... {p}%"));
+            var zipPath = await _updateService.DownloadZipAsync(info.ZipUrl, info.Sha256Url, progress);
+            dialog.ShowProgress(100, "설치 준비 중... 앱이 재시작됩니다.");
+            await Task.Delay(600);
+            ApplyUpdate(zipPath);
+        }
+        catch (Exception ex)
+        {
+            _updateInProgress = false;
+            Log.Error(ex, "Update download/apply failed");
+            dialog.ShowError("업데이트 실패: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Hands the downloaded ZIP to a PowerShell script that waits for this app to exit, mirrors
+    /// the new build over the install folder, and relaunches — then shuts the app down. A
+    /// running self-contained app can't replace its own folder, so the swap happens externally.
+    /// </summary>
+    private void ApplyUpdate(string zipPath)
+    {
+        var targetDir = AppContext.BaseDirectory.TrimEnd('\\', '/');
+        var exeName = Path.GetFileName(Environment.ProcessPath ?? "BudsMonitor.App.exe");
+        var ps1Path = Path.Combine(Path.GetTempPath(), $"budsmon_update_{Guid.NewGuid():N}.ps1");
+        var logPath = Path.Combine(Path.GetTempPath(), "budsmon_update.log");
+
+        static string Esc(string s) => s.Replace("'", "''");
+
+        var script = UpdateSwapScript
+            .Replace("{LOG}", Esc(logPath))
+            .Replace("{ZIP}", Esc(zipPath))
+            .Replace("{TARGET}", Esc(targetDir))
+            .Replace("{EXE}", Esc(exeName))
+            .Replace("{PS1}", Esc(ps1Path));
+
+        File.WriteAllText(ps1Path, script, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe")
+        {
+            Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{ps1Path}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+
+        Log.Information("Update swap launched; shutting down for folder replacement");
+        QuitApplication();
+    }
+
+    // PowerShell folder-swap script. Deliberately uses no double-quotes so it embeds cleanly
+    // in this verbatim C# string; paths are injected as single-quoted literals (see Esc).
+    private const string UpdateSwapScript = @"
+$ErrorActionPreference = 'Stop'
+$log = '{LOG}'
+('BudsMonitor update ' + (Get-Date)) | Out-File -LiteralPath $log
+function Log($m) { ((Get-Date -Format 'HH:mm:ss') + ' ' + $m) | Out-File -LiteralPath $log -Append }
+$zip = '{ZIP}'
+$target = '{TARGET}'
+$exe = Join-Path $target '{EXE}'
+$tmp = Join-Path $env:TEMP ('BudsMonitor_new_' + [Guid]::NewGuid().ToString('N'))
+try {
+    Log 'Waiting for app to exit...'
+    $t = 20
+    while ($t -gt 0) {
+        if (-not (Get-Process -Name 'BudsMonitor.App' -ErrorAction SilentlyContinue)) { break }
+        Start-Sleep -Seconds 1
+        $t = $t - 1
+    }
+    Get-Process -Name 'BudsMonitor.App' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    Log 'Extracting new build...'
+    Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+    Log 'Replacing app folder...'
+    $ok = $false
+    for ($i = 0; $i -lt 5; $i = $i + 1) {
+        robocopy $tmp $target /MIR /NFL /NDL /NJH /NJS /NC /NS /R:2 /W:2 | Out-Null
+        if ($LASTEXITCODE -lt 8) { $ok = $true; break }
+        Log ('robocopy exit ' + $LASTEXITCODE + ', retry ' + $i)
+        Start-Sleep -Seconds 2
+    }
+    if (-not $ok) { throw ('robocopy failed: ' + $LASTEXITCODE) }
+    Log 'Restarting new version...'
+    Start-Process -FilePath $exe
+    Log 'Update complete.'
+}
+catch { Log ('ERROR: ' + $_.Exception.Message) }
+finally {
+    Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath '{PS1}' -Force -ErrorAction SilentlyContinue
+}
+";
+
     private void SaveCacheThrottled(BatterySnapshot snapshot, DateTimeOffset now)
     {
         _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
@@ -942,6 +1189,7 @@ public partial class App : System.Windows.Application
         // These surfaces are wired up in later goals (scanner / diagnostics).
         menu.Items.Add("지금 새로 고침", image: null, async (_, _) => await RestartScannerAsync());
         menu.Items.Add("진단", image: null, (_, _) => ShowDiagnosticsWindow());
+        menu.Items.Add("업데이트 확인", image: null, (_, _) => CheckForUpdatesManually());
         menu.Items.Add("설정", image: null, (_, _) => ShowSettingsWindow());
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("종료", image: null, (_, _) => QuitApplication());
