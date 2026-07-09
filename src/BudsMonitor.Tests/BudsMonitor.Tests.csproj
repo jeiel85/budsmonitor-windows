@@ -24,6 +24,7 @@
     <ProjectReference Include="..\BudsMonitor.Providers.AirPods\BudsMonitor.Providers.AirPods.csproj" />
     <ProjectReference Include="..\BudsMonitor.Infrastructure\BudsMonitor.Infrastructure.csproj" />
     <ProjectReference Include="..\BudsMonitor.Providers.Gatt\BudsMonitor.Providers.Gatt.csproj" />
+    <ProjectReference Include="..\BudsMonitor.Providers.GalaxyBuds\BudsMonitor.Providers.GalaxyBuds.csproj" />
     <ProjectReference Include="..\BudsMonitor.Diagnostics\BudsMonitor.Diagnostics.csproj" />
   </ItemGroup>
 

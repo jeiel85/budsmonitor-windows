@@ -4,6 +4,10 @@
     <ProjectReference Include="..\BudsMonitor.Domain\BudsMonitor.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Profiles\galaxy-buds-profiles.json" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

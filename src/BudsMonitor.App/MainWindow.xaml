@@ -112,6 +112,15 @@
                                         </DockPanel>
                                     </StackPanel>
 
+                                    <Border Margin="0,12,0,0" Padding="10,6"
+                                            Background="{DynamicResource CanvasSoftBrush}"
+                                            BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1"
+                                            CornerRadius="6"
+                                            Visibility="{Binding IsLimitedSupport, Converter={StaticResource BoolToVisible}}">
+                                        <TextBlock Text="{Binding SupportNote}" Style="{StaticResource Caption}"
+                                                   TextWrapping="Wrap" />
+                                    </Border>
+
                                     <TextBlock Text="{Binding StatusLine}" Style="{StaticResource Caption}"
                                                Margin="0,12,0,0" />
                                 </StackPanel>

@@ -12,6 +12,7 @@ using BudsMonitor.Infrastructure.Logging;
 using BudsMonitor.Infrastructure.Settings;
 using BudsMonitor.Infrastructure.Storage;
 using BudsMonitor.Providers.AirPods;
+using BudsMonitor.Providers.GalaxyBuds;
 using BudsMonitor.Providers.Gatt;
 using Serilog;
 
@@ -46,6 +47,8 @@ public partial class App : System.Windows.Application
 
     private readonly DashboardViewModel _dashboard = new();
     private readonly AirPodsBleAdvertisementProvider _airPodsProvider = new();
+    private readonly GalaxyBudsAdvertisementProvider _galaxyBudsProvider = new();
+    private readonly GalaxyBudsClassifier _galaxyBudsClassifier = new();
     private readonly NotificationRuleService _notificationService = new();
     private readonly Dictionary<string, BatterySnapshot> _latestSnapshots = new();
     private BatteryCacheRepository? _cacheRepository;
@@ -211,6 +214,7 @@ public partial class App : System.Windows.Application
 
                 if (!_airPodsProvider.TryParseAdvertisement(frame, out var result) || result.Snapshot is null)
                 {
+                    TryApplyGalaxyBudsAdvertisement(frame);
                     continue;
                 }
 
@@ -385,10 +389,15 @@ public partial class App : System.Windows.Application
                     UpdateTrayFromDashboard();
                     SaveCacheThrottled(snapshot, now);
                 }
-                else if (result.Status == BatteryReadStatus.Failed)
+                else
                 {
-                    Log.Debug("GATT read failed for {Device}: {Reason}",
-                        candidate.DisplayName, result.Failure?.Reason);
+                    if (result.Status == BatteryReadStatus.Failed)
+                    {
+                        Log.Debug("GATT read failed for {Device}: {Reason}",
+                            candidate.DisplayName, result.Failure?.Reason);
+                    }
+
+                    TryApplyGalaxyBudsCandidate(candidate);
                 }
             }
 
@@ -438,6 +447,47 @@ public partial class App : System.Windows.Application
             entry?.IsHidden ?? false,
             _showHiddenDevices,
             now);
+    }
+
+    /// <summary>
+    /// Surfaces Galaxy Buds seen in an advertisement as a limited-support card (GOAL 11).
+    /// No battery is available (proprietary protocol); the card marks the device accordingly.
+    /// </summary>
+    private void TryApplyGalaxyBudsAdvertisement(BleAdvertisementFrame frame)
+    {
+        if (!_galaxyBudsProvider.TryParseAdvertisement(frame, out var result) || result.Snapshot is null)
+        {
+            return;
+        }
+
+        var snapshot = result.Snapshot;
+        var now = DateTimeOffset.Now;
+        Dispatcher.InvokeAsync(() =>
+        {
+            ApplySnapshot(snapshot, now);
+            _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
+            UpdateTrayFromDashboard();
+        });
+    }
+
+    /// <summary>
+    /// If a paired device without standard GATT battery is a Galaxy Buds, show it as limited
+    /// support so it is visible and captured in diagnostics (runs on the UI thread).
+    /// </summary>
+    private void TryApplyGalaxyBudsCandidate(DeviceCandidate candidate)
+    {
+        var match = _galaxyBudsClassifier.Classify(candidate.DisplayName);
+        if (match is null)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.Now;
+        var snapshot = GalaxyBudsAdvertisementProvider.CreateLimitedSupportSnapshot(
+            candidate.StableDeviceKey, match.DisplayName, match.DisplayName, now);
+        ApplySnapshot(snapshot, now);
+        _latestSnapshots[snapshot.StableDeviceKey] = snapshot;
+        UpdateTrayFromDashboard();
     }
 
     internal void TogglePinDevice(string key)

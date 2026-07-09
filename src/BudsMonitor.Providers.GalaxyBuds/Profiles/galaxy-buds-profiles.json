@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "profiles": [
+    { "model": "buds",      "displayName": "Galaxy Buds",      "namePatterns": ["Galaxy Buds"] },
+    { "model": "budsplus",  "displayName": "Galaxy Buds+",     "namePatterns": ["Galaxy Buds+", "Galaxy Buds Plus"] },
+    { "model": "budslive",  "displayName": "Galaxy Buds Live", "namePatterns": ["Galaxy Buds Live"] },
+    { "model": "budspro",   "displayName": "Galaxy Buds Pro",  "namePatterns": ["Galaxy Buds Pro"] },
+    { "model": "buds2",     "displayName": "Galaxy Buds2",     "namePatterns": ["Galaxy Buds2"] },
+    { "model": "buds2pro",  "displayName": "Galaxy Buds2 Pro", "namePatterns": ["Galaxy Buds2 Pro"] },
+    { "model": "budsfe",    "displayName": "Galaxy Buds FE",   "namePatterns": ["Galaxy Buds FE"] },
+    { "model": "buds3",     "displayName": "Galaxy Buds3",     "namePatterns": ["Galaxy Buds3"] },
+    { "model": "buds3pro",  "displayName": "Galaxy Buds3 Pro", "namePatterns": ["Galaxy Buds3 Pro"] }
+  ]
+}

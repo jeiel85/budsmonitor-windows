@@ -29,6 +29,8 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
     public string WholeDeviceValue { get; private set; } = "—";
     public bool WholeDeviceCharging { get; private set; }
     public bool IsPinned { get; private set; }
+    public bool IsLimitedSupport { get; private set; }
+    public string SupportNote { get; private set; } = "";
     public string StatusLine { get; private set; } = "";
     public string FreshnessBadge { get; private set; } = "";
     public double CardOpacity { get; private set; } = 1.0;
@@ -63,6 +65,9 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
         HasWholeDevice = whole is not null;
         WholeDeviceValue = Format(whole);
         WholeDeviceCharging = whole?.IsCharging ?? false;
+
+        IsLimitedSupport = snapshot.Source == BatteryDataSource.GalaxyBudsProvider;
+        SupportNote = IsLimitedSupport ? "제한적 지원 · 배터리 정보 없음" : "";
 
         RefreshFreshness(now);
         RaiseAll();
@@ -119,6 +124,7 @@ public sealed class DeviceCardViewModel : INotifyPropertyChanged
             nameof(HasLeft), nameof(HasRight), nameof(HasCase),
             nameof(LeftCharging), nameof(RightCharging), nameof(CaseCharging),
             nameof(HasWholeDevice), nameof(WholeDeviceValue), nameof(WholeDeviceCharging),
+            nameof(IsLimitedSupport), nameof(SupportNote),
             nameof(StatusLine), nameof(FreshnessBadge), nameof(CardOpacity),
         })
         {
