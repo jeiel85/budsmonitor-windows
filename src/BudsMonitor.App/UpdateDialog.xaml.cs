@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Documents;
+using BudsMonitor.Application.Updates;
 
 namespace BudsMonitor.App;
 
@@ -18,9 +20,61 @@ public partial class UpdateDialog : Window
     {
         InitializeComponent();
         VersionText.Text = $"{tag} 로 업데이트할 수 있습니다.";
-        NotesText.Text = string.IsNullOrWhiteSpace(releaseNotes)
-            ? "릴리스 노트가 없습니다."
-            : releaseNotes;
+        RenderNotes(releaseNotes);
+    }
+
+    /// <summary>Renders the markdown release notes as themed inlines (headings, bullets, bold)
+    /// so the dialog no longer shows literal <c>##</c> / <c>**</c> markers.</summary>
+    private void RenderNotes(string releaseNotes)
+    {
+        NotesText.Inlines.Clear();
+        var blocks = ReleaseNotesMarkdown.Parse(releaseNotes);
+        if (blocks.Count == 0)
+        {
+            NotesText.Text = "릴리스 노트가 없습니다.";
+            return;
+        }
+
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            var block = blocks[i];
+            if (i > 0)
+            {
+                NotesText.Inlines.Add(new LineBreak());
+                if (block.Kind == ReleaseNotesBlockKind.Heading)
+                {
+                    NotesText.Inlines.Add(new LineBreak()); // breathing room before a section heading
+                }
+            }
+
+            if (block.Kind == ReleaseNotesBlockKind.Bullet)
+            {
+                if (block.Level > 0)
+                {
+                    NotesText.Inlines.Add(new Run(new string(' ', block.Level * 3)));
+                }
+
+                NotesText.Inlines.Add(new Run("• "));
+            }
+
+            var isHeading = block.Kind == ReleaseNotesBlockKind.Heading;
+            foreach (var span in block.Spans)
+            {
+                var run = new Run(span.Text);
+                if (isHeading || span.Bold)
+                {
+                    run.FontWeight = FontWeights.SemiBold;
+                }
+
+                if (isHeading)
+                {
+                    run.FontSize = block.Level <= 1 ? 15 : 13.5;
+                    run.SetResourceReference(TextElement.ForegroundProperty, "InkBrush");
+                }
+
+                NotesText.Inlines.Add(run);
+            }
+        }
     }
 
     public void ShowProgress(int percent, string status)
